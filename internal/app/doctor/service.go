@@ -25,23 +25,25 @@ type OutputWriter interface {
 
 // Service handles diagnostics for agent-notify.
 type Service struct {
-	claudeIntegration   agentintegrations.Integration
-	codexIntegration    agentintegrations.Integration
-	zcodeIntegration    agentintegrations.Integration
-	grokIntegration     agentintegrations.Integration
-	droidIntegration    agentintegrations.Integration
-	opencodeIntegration agentintegrations.Integration
+	claudeIntegration    agentintegrations.Integration
+	codexIntegration     agentintegrations.Integration
+	zcodeIntegration     agentintegrations.Integration
+	grokIntegration      agentintegrations.Integration
+	droidIntegration     agentintegrations.Integration
+	opencodeIntegration  agentintegrations.Integration
+	workbuddyIntegration agentintegrations.Integration
 }
 
 // NewService creates a new doctor service.
 func NewService(opts ...Option) *Service {
 	s := &Service{
-		claudeIntegration:   agentintegrations.NewClaudeIntegration(),
-		codexIntegration:    agentintegrations.NewCodexIntegration(),
-		zcodeIntegration:    agentintegrations.NewZcodeIntegration(),
-		grokIntegration:     agentintegrations.NewGrokIntegration(),
-		droidIntegration:    agentintegrations.NewDroidIntegration(),
-		opencodeIntegration: agentintegrations.NewOpenCodeIntegration(),
+		claudeIntegration:    agentintegrations.NewClaudeIntegration(),
+		codexIntegration:     agentintegrations.NewCodexIntegration(),
+		zcodeIntegration:     agentintegrations.NewZcodeIntegration(),
+		grokIntegration:      agentintegrations.NewGrokIntegration(),
+		droidIntegration:     agentintegrations.NewDroidIntegration(),
+		opencodeIntegration:  agentintegrations.NewOpenCodeIntegration(),
+		workbuddyIntegration: agentintegrations.NewWorkBuddyIntegration(),
 	}
 
 	for _, opt := range opts {
@@ -82,6 +84,11 @@ func WithDroidIntegration(i agentintegrations.Integration) Option {
 // WithOpenCodeIntegration sets the OpenCode integration.
 func WithOpenCodeIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.opencodeIntegration = i }
+}
+
+// WithWorkBuddyIntegration sets the WorkBuddy / CodeBuddy integration.
+func WithWorkBuddyIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.workbuddyIntegration = i }
 }
 
 type DiagnosticStatus string

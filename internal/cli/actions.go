@@ -16,9 +16,9 @@ import (
 	"github.com/hellolib/agent-notify/internal/common"
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/droidhooks"
-	"github.com/hellolib/agent-notify/internal/opencodehooks"
 	"github.com/hellolib/agent-notify/internal/grokhooks"
 	"github.com/hellolib/agent-notify/internal/i18n"
+	"github.com/hellolib/agent-notify/internal/opencodehooks"
 	"github.com/hellolib/agent-notify/internal/zcodehooks"
 	"github.com/mattn/go-isatty"
 )
@@ -78,6 +78,7 @@ func runInitFlow(ctx context.Context, streams Streams, prompter Prompter, config
 		setup.WithGrokIntegration(agentintegrations.NewGrokIntegration()),
 		setup.WithDroidIntegration(agentintegrations.NewDroidIntegration()),
 		setup.WithOpenCodeIntegration(agentintegrations.NewOpenCodeIntegration()),
+		setup.WithWorkBuddyIntegration(agentintegrations.NewWorkBuddyIntegration()),
 		setup.WithFeishuPreparer(&feishuPreparerAdapter{}),
 	)
 

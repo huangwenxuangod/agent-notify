@@ -26,7 +26,8 @@ type AgentConfig struct {
 	ZCode      AgentTargetConfig `yaml:"zcode"`       // ZCode 配置
 	Grok       AgentTargetConfig `yaml:"grok"`        // Grok 配置
 	Droid      AgentTargetConfig `yaml:"droid"`       // Droid 配置
-	OpenCode   AgentTargetConfig `yaml:"opencode"`     // OpenCode 配置
+	OpenCode   AgentTargetConfig `yaml:"opencode"`    // OpenCode 配置
+	WorkBuddy  AgentTargetConfig `yaml:"workbuddy"`   // WorkBuddy / CodeBuddy 配置
 }
 
 // AgentTargetConfig holds configuration for a specific agent.
@@ -59,7 +60,8 @@ type NotifyConfig struct {
 	ZCode      AgentNotifyConfig `yaml:"zcode"`       // ZCode 通知配置
 	Grok       AgentNotifyConfig `yaml:"grok"`        // Grok 通知配置
 	Droid      AgentNotifyConfig `yaml:"droid"`       // Droid 通知配置
-	OpenCode   AgentNotifyConfig `yaml:"opencode"`     // OpenCode 通知配置
+	OpenCode   AgentNotifyConfig `yaml:"opencode"`    // OpenCode 通知配置
+	WorkBuddy  AgentNotifyConfig `yaml:"workbuddy"`   // WorkBuddy / CodeBuddy 通知配置
 }
 
 // All 按固定顺序返回全部 agent 的通知配置，供只读遍历使用。
@@ -69,7 +71,7 @@ type NotifyConfig struct {
 // enabledRemoteFreezeChannels 仍只遍历前四个，导致只配 Droid 的用户完全冻结不了。
 // TestNotifyConfigAllCoversEveryAgent 会在字段数与此处不一致时失败。
 func (n NotifyConfig) All() []AgentNotifyConfig {
-	return []AgentNotifyConfig{n.ClaudeCode, n.Codex, n.ZCode, n.Grok, n.Droid, n.OpenCode}
+	return []AgentNotifyConfig{n.ClaudeCode, n.Codex, n.ZCode, n.Grok, n.Droid, n.OpenCode, n.WorkBuddy}
 }
 
 // AgentNotifyConfig holds notification configuration for a single agent.
@@ -243,6 +245,7 @@ func Default() Config {
 				Enabled:      false,
 				InstallScope: "user",
 			},
+			WorkBuddy: AgentTargetConfig{Enabled: false, InstallScope: "user"},
 		},
 		Notify: NotifyConfig{
 			ClaudeCode: AgentNotifyConfig{
@@ -269,6 +272,7 @@ func Default() Config {
 				Events:   append([]string(nil), opencodeEvents...),
 				Channels: disabledChannels(),
 			},
+			WorkBuddy: AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
 		},
 		Behavior: BehaviorConfig{
 			DedupeSeconds:      10,
@@ -300,6 +304,15 @@ func LogPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".agent-notify", "agent-notify.log"), nil
+}
+
+// BridgeTokenPath returns the per-user token used by the loopback bridge API.
+func BridgeTokenPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".agent-notify", "bridge.token"), nil
 }
 
 func Load(path string) (Config, error) {
@@ -336,6 +349,12 @@ func Load(path string) (Config, error) {
 	if cfg.Agent.Droid.InstallScope == "" {
 		cfg.Agent.Droid.InstallScope = "user"
 	}
+	if cfg.Agent.OpenCode.InstallScope == "" {
+		cfg.Agent.OpenCode.InstallScope = "user"
+	}
+	if cfg.Agent.WorkBuddy.InstallScope == "" {
+		cfg.Agent.WorkBuddy.InstallScope = "user"
+	}
 	if cfg.Behavior.DedupeSeconds == 0 {
 		cfg.Behavior.DedupeSeconds = 10
 	}
@@ -354,6 +373,8 @@ func Load(path string) (Config, error) {
 	cfg.Notify.ZCode.Events = ensureEvents(cfg.Notify.ZCode, def.Notify.ZCode.Events)
 	cfg.Notify.Grok.Events = ensureEvents(cfg.Notify.Grok, def.Notify.Grok.Events)
 	cfg.Notify.Droid.Events = ensureEvents(cfg.Notify.Droid, def.Notify.Droid.Events)
+	cfg.Notify.OpenCode.Events = ensureEvents(cfg.Notify.OpenCode, def.Notify.OpenCode.Events)
+	cfg.Notify.WorkBuddy.Events = ensureEvents(cfg.Notify.WorkBuddy, def.Notify.WorkBuddy.Events)
 
 	return cfg, nil
 }

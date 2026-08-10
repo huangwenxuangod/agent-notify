@@ -36,14 +36,15 @@ type OutputWriter interface {
 
 // Service handles the init/setup flow for agent-notify.
 type Service struct {
-	claudeIntegration   agentintegrations.Integration
-	codexIntegration    agentintegrations.Integration
-	zcodeIntegration    agentintegrations.Integration
-	grokIntegration     agentintegrations.Integration
-	droidIntegration    agentintegrations.Integration
-	opencodeIntegration agentintegrations.Integration
-	feishuPreparer      FeishuPreparer
-	configLoader        ConfigLoader
+	claudeIntegration    agentintegrations.Integration
+	codexIntegration     agentintegrations.Integration
+	zcodeIntegration     agentintegrations.Integration
+	grokIntegration      agentintegrations.Integration
+	droidIntegration     agentintegrations.Integration
+	opencodeIntegration  agentintegrations.Integration
+	workbuddyIntegration agentintegrations.Integration
+	feishuPreparer       FeishuPreparer
+	configLoader         ConfigLoader
 }
 
 // ConfigLoader loads and saves configuration.
@@ -69,6 +70,9 @@ func NewService(opts ...Option) *Service {
 		grokIntegration:     agentintegrations.NewGrokIntegration(),
 		droidIntegration:    agentintegrations.NewDroidIntegration(),
 		opencodeIntegration: agentintegrations.NewOpenCodeIntegration(),
+		// WorkBuddy is opt-in here so library consumers and isolated tests do not
+		// accidentally inspect a user's ~/.codebuddy directory. The CLI injects it.
+		workbuddyIntegration: nil,
 	}
 
 	for _, opt := range opts {
@@ -109,6 +113,11 @@ func WithDroidIntegration(i agentintegrations.Integration) Option {
 // WithOpenCodeIntegration sets the OpenCode integration.
 func WithOpenCodeIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.opencodeIntegration = i }
+}
+
+// WithWorkBuddyIntegration sets the WorkBuddy / CodeBuddy integration.
+func WithWorkBuddyIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.workbuddyIntegration = i }
 }
 
 // WithFeishuPreparer sets the Feishu preparer.
@@ -374,6 +383,10 @@ func (s *Service) disableAgentNotification(cfg config.Config, path, agent string
 		cfg.Notify.OpenCode.Channels.Slack.WebhookURL = ""
 		cfg.Notify.OpenCode.Events = nil
 		cfg.Agent.OpenCode.Enabled = false
+	case "workbuddy":
+		cfg.Notify.WorkBuddy.Channels = config.ChannelsConfig{}
+		cfg.Notify.WorkBuddy.Events = nil
+		cfg.Agent.WorkBuddy.Enabled = false
 	}
 
 	if err := s.saveConfig(path, cfg); err != nil {
@@ -402,6 +415,8 @@ func agentName(agent string) string {
 		return "Droid"
 	case "opencode":
 		return "OpenCode"
+	case "workbuddy":
+		return "WorkBuddy / CodeBuddy"
 	default:
 		return agent
 	}
