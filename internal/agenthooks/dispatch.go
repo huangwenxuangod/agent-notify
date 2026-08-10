@@ -37,12 +37,14 @@ func Dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 	store := state.NewStore(statePath)
 	senders := buildSenders(cfg, msg)
 	if len(senders) == 0 {
+		appendEventRecord(statePath, logPath, msg, "no_sender")
 		return state.AppendLog(logPath, fmt.Sprintf("no sender enabled for event=%s", msg.Event))
 	}
 
 	// 临时冻结：在 ReserveSend 之前按渠道静默丢弃，不占去重名额、不改 agent hooks。
 	senders = filterFrozenSenders(statePath, logPath, msg.Event, senders, time.Now())
 	if len(senders) == 0 {
+		appendEventRecord(statePath, logPath, msg, "frozen")
 		return state.AppendLog(logPath, fmt.Sprintf("all senders frozen for event=%s", msg.Event))
 	}
 
@@ -52,10 +54,27 @@ func Dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 	defer cancel()
 
 	if err := dispatcher.SendAll(sendCtx, msg); err != nil {
+		appendEventRecord(statePath, logPath, msg, "error")
 		return state.AppendLog(logPath, fmt.Sprintf("dispatch error event=%s session=%s err=%v", msg.Event, msg.SessionID, err))
 	}
+	appendEventRecord(statePath, logPath, msg, "sent")
 
 	return nil
+}
+
+func appendEventRecord(statePath, logPath string, msg notify.Message, result string) {
+	sourceApp := msg.SourceApp.BundleID
+	if sourceApp == "" {
+		sourceApp = msg.SourceApp.TermProgram
+	}
+	record := state.EventRecord{
+		Timestamp: time.Now().UTC(), Agent: msg.Agent, Event: msg.Event,
+		SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title,
+		Body: msg.Body, SourceApp: sourceApp, Result: result,
+	}
+	if err := state.NewEventJournal(state.EventJournalPath(statePath), 5<<20).Append(record); err != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("event journal append error event=%s err=%v", msg.Event, err))
+	}
 }
 
 func applyFocusCache(msg *notify.Message, goos, data string) {
@@ -139,6 +158,8 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 		notifyCfg = cfg.Notify.Droid
 	case "opencode":
 		notifyCfg = cfg.Notify.OpenCode
+	case "workbuddy":
+		notifyCfg = cfg.Notify.WorkBuddy
 	}
 
 	if !contains(notifyCfg.Events, msg.Event) {

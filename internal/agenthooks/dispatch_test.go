@@ -1,6 +1,9 @@
 package agenthooks
 
 import (
+	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -28,6 +31,27 @@ func TestApplyFocusCacheRoutesByPlatform(t *testing.T) {
 			t.Fatalf("%s: got FocusWindowID=%q FocusCapture=%q, want %q/%q",
 				c.goos, msg.FocusWindowID, msg.FocusCapture, c.wantWindow, c.wantCapture)
 		}
+	}
+}
+
+func TestDispatchAppendsNonSessionEventToJournal(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "state.json")
+	logPath := filepath.Join(root, "agent-notify.log")
+	cfg := config.Default()
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, notify.Message{Agent: "codex", Event: "run_completed", SessionID: "s1", Body: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(state.EventJournalPath(statePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record state.EventRecord
+	if err := json.Unmarshal(data[:len(data)-1], &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Agent != "codex" || record.Event != "run_completed" || record.Result != "no_sender" {
+		t.Fatalf("record = %#v", record)
 	}
 }
 
