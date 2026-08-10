@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/hellolib/agent-notify/internal/agentintegrations"
 	"github.com/hellolib/agent-notify/internal/common"
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/i18n"

@@ -12,6 +12,8 @@ import (
 
 type darwin struct{ binary, path string }
 
+func newWindows(string) Manager { return unsupported{platform: "windows"} }
+
 func newDarwin(binary string) Manager {
 	h, _ := os.UserHomeDir()
 	return &darwin{binary: binary, path: filepath.Join(h, "Library", "LaunchAgents", "com.agentnotify.tray.plist")}

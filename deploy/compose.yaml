@@ -3,6 +3,10 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        GOPROXY: "${GOPROXY:-https://goproxy.cn,direct}"
+        GO_BASE_IMAGE: "${GO_BASE_IMAGE:-docker.m.daocloud.io/library/golang:1.25-alpine}"
+        RUNTIME_BASE_IMAGE: "${RUNTIME_BASE_IMAGE:-docker.m.daocloud.io/library/alpine:3.21}"
     environment:
       PORT: "45175"
       DATA_DIR: "/var/lib/agent-notify"
