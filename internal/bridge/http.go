@@ -169,7 +169,22 @@ func NewHTTPHandler(service *Service, token []byte) http.Handler {
 			jsonWrite(w, 200, service.AutostartStatus())
 			return
 		}
-		jsonWrite(w, 501, map[string]string{"error": "autostart unavailable"})
+		if r.Method != http.MethodPut {
+			jsonWrite(w, 405, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var req struct {
+			Enabled bool `json:"enabled"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil {
+			jsonWrite(w, 400, map[string]string{"error": "invalid json"})
+			return
+		}
+		if err := service.SetAutostart(req.Enabled); err != nil {
+			jsonWrite(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		jsonWrite(w, 200, service.AutostartStatus())
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { mux.ServeHTTP(w, r) })
 }

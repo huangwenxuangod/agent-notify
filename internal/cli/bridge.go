@@ -30,6 +30,13 @@ func newBridgeCmd(streams Streams) *cobra.Command {
 	return cmd
 }
 
+func newTrayCmd(streams Streams) *cobra.Command {
+	cmd := newBridgeCmd(streams)
+	cmd.Use = "tray"
+	cmd.Short = "Run the background Agent Notify host process"
+	return cmd
+}
+
 func runBridge(ctx context.Context, streams Streams, port int) error {
 	if port < 0 || port > 65535 {
 		return fmt.Errorf("invalid bridge port %d", port)

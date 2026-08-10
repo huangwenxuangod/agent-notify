@@ -160,6 +160,10 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 		notifyCfg = cfg.Notify.OpenCode
 	case "workbuddy":
 		notifyCfg = cfg.Notify.WorkBuddy
+	case "hermes":
+		notifyCfg = cfg.Notify.Hermes
+	case "openclaw":
+		notifyCfg = cfg.Notify.OpenClaw
 	}
 
 	if !contains(notifyCfg.Events, msg.Event) {

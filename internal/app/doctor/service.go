@@ -32,6 +32,8 @@ type Service struct {
 	droidIntegration     agentintegrations.Integration
 	opencodeIntegration  agentintegrations.Integration
 	workbuddyIntegration agentintegrations.Integration
+	hermesIntegration    agentintegrations.Integration
+	openclawIntegration  agentintegrations.Integration
 }
 
 // NewService creates a new doctor service.
@@ -44,6 +46,8 @@ func NewService(opts ...Option) *Service {
 		droidIntegration:     agentintegrations.NewDroidIntegration(),
 		opencodeIntegration:  agentintegrations.NewOpenCodeIntegration(),
 		workbuddyIntegration: agentintegrations.NewWorkBuddyIntegration(),
+		hermesIntegration:    agentintegrations.NewHermesIntegration(),
+		openclawIntegration:  agentintegrations.NewOpenClawIntegration(),
 	}
 
 	for _, opt := range opts {
@@ -89,6 +93,12 @@ func WithOpenCodeIntegration(i agentintegrations.Integration) Option {
 // WithWorkBuddyIntegration sets the WorkBuddy / CodeBuddy integration.
 func WithWorkBuddyIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.workbuddyIntegration = i }
+}
+func WithHermesIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.hermesIntegration = i }
+}
+func WithOpenClawIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.openclawIntegration = i }
 }
 
 type DiagnosticStatus string

@@ -79,6 +79,8 @@ func runInitFlow(ctx context.Context, streams Streams, prompter Prompter, config
 		setup.WithDroidIntegration(agentintegrations.NewDroidIntegration()),
 		setup.WithOpenCodeIntegration(agentintegrations.NewOpenCodeIntegration()),
 		setup.WithWorkBuddyIntegration(agentintegrations.NewWorkBuddyIntegration()),
+		setup.WithHermesIntegration(agentintegrations.NewHermesIntegration()),
+		setup.WithOpenClawIntegration(agentintegrations.NewOpenClawIntegration()),
 		setup.WithFeishuPreparer(&feishuPreparerAdapter{}),
 	)
 

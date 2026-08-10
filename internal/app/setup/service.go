@@ -43,6 +43,8 @@ type Service struct {
 	droidIntegration     agentintegrations.Integration
 	opencodeIntegration  agentintegrations.Integration
 	workbuddyIntegration agentintegrations.Integration
+	hermesIntegration    agentintegrations.Integration
+	openclawIntegration  agentintegrations.Integration
 	feishuPreparer       FeishuPreparer
 	configLoader         ConfigLoader
 }
@@ -118,6 +120,12 @@ func WithOpenCodeIntegration(i agentintegrations.Integration) Option {
 // WithWorkBuddyIntegration sets the WorkBuddy / CodeBuddy integration.
 func WithWorkBuddyIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.workbuddyIntegration = i }
+}
+func WithHermesIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.hermesIntegration = i }
+}
+func WithOpenClawIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.openclawIntegration = i }
 }
 
 // WithFeishuPreparer sets the Feishu preparer.

@@ -28,6 +28,8 @@ type AgentConfig struct {
 	Droid      AgentTargetConfig `yaml:"droid"`       // Droid 配置
 	OpenCode   AgentTargetConfig `yaml:"opencode"`    // OpenCode 配置
 	WorkBuddy  AgentTargetConfig `yaml:"workbuddy"`   // WorkBuddy / CodeBuddy 配置
+	Hermes     AgentTargetConfig `yaml:"hermes"`
+	OpenClaw   AgentTargetConfig `yaml:"openclaw"`
 }
 
 // AgentTargetConfig holds configuration for a specific agent.
@@ -62,6 +64,8 @@ type NotifyConfig struct {
 	Droid      AgentNotifyConfig `yaml:"droid"`       // Droid 通知配置
 	OpenCode   AgentNotifyConfig `yaml:"opencode"`    // OpenCode 通知配置
 	WorkBuddy  AgentNotifyConfig `yaml:"workbuddy"`   // WorkBuddy / CodeBuddy 通知配置
+	Hermes     AgentNotifyConfig `yaml:"hermes"`
+	OpenClaw   AgentNotifyConfig `yaml:"openclaw"`
 }
 
 // All 按固定顺序返回全部 agent 的通知配置，供只读遍历使用。
@@ -71,7 +75,7 @@ type NotifyConfig struct {
 // enabledRemoteFreezeChannels 仍只遍历前四个，导致只配 Droid 的用户完全冻结不了。
 // TestNotifyConfigAllCoversEveryAgent 会在字段数与此处不一致时失败。
 func (n NotifyConfig) All() []AgentNotifyConfig {
-	return []AgentNotifyConfig{n.ClaudeCode, n.Codex, n.ZCode, n.Grok, n.Droid, n.OpenCode, n.WorkBuddy}
+	return []AgentNotifyConfig{n.ClaudeCode, n.Codex, n.ZCode, n.Grok, n.Droid, n.OpenCode, n.WorkBuddy, n.Hermes, n.OpenClaw}
 }
 
 // AgentNotifyConfig holds notification configuration for a single agent.
@@ -246,6 +250,8 @@ func Default() Config {
 				InstallScope: "user",
 			},
 			WorkBuddy: AgentTargetConfig{Enabled: false, InstallScope: "user"},
+			Hermes:    AgentTargetConfig{Enabled: false, InstallScope: "user"},
+			OpenClaw:  AgentTargetConfig{Enabled: false, InstallScope: "user"},
 		},
 		Notify: NotifyConfig{
 			ClaudeCode: AgentNotifyConfig{
@@ -273,6 +279,8 @@ func Default() Config {
 				Channels: disabledChannels(),
 			},
 			WorkBuddy: AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
+			Hermes:    AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
+			OpenClaw:  AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
 		},
 		Behavior: BehaviorConfig{
 			DedupeSeconds:      10,
@@ -355,6 +363,12 @@ func Load(path string) (Config, error) {
 	if cfg.Agent.WorkBuddy.InstallScope == "" {
 		cfg.Agent.WorkBuddy.InstallScope = "user"
 	}
+	if cfg.Agent.Hermes.InstallScope == "" {
+		cfg.Agent.Hermes.InstallScope = "user"
+	}
+	if cfg.Agent.OpenClaw.InstallScope == "" {
+		cfg.Agent.OpenClaw.InstallScope = "user"
+	}
 	if cfg.Behavior.DedupeSeconds == 0 {
 		cfg.Behavior.DedupeSeconds = 10
 	}
@@ -375,6 +389,8 @@ func Load(path string) (Config, error) {
 	cfg.Notify.Droid.Events = ensureEvents(cfg.Notify.Droid, def.Notify.Droid.Events)
 	cfg.Notify.OpenCode.Events = ensureEvents(cfg.Notify.OpenCode, def.Notify.OpenCode.Events)
 	cfg.Notify.WorkBuddy.Events = ensureEvents(cfg.Notify.WorkBuddy, def.Notify.WorkBuddy.Events)
+	cfg.Notify.Hermes.Events = ensureEvents(cfg.Notify.Hermes, def.Notify.Hermes.Events)
+	cfg.Notify.OpenClaw.Events = ensureEvents(cfg.Notify.OpenClaw, def.Notify.OpenClaw.Events)
 
 	return cfg, nil
 }

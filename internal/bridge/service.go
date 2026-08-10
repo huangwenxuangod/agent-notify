@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hellolib/agent-notify/internal/agentintegrations"
+	"github.com/hellolib/agent-notify/internal/autostart"
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/state"
 )
@@ -100,6 +101,8 @@ func (s *Service) specs(cfg *config.Config) []agentSpec {
 		{"droid", agentintegrations.NewDroidIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.Droid }},
 		{"opencode", agentintegrations.NewOpenCodeIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.OpenCode }},
 		{"workbuddy", agentintegrations.NewWorkBuddyIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.WorkBuddy }},
+		{"hermes", agentintegrations.NewHermesIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.Hermes }},
+		{"openclaw", agentintegrations.NewOpenClawIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.OpenClaw }},
 	}
 }
 
@@ -256,8 +259,16 @@ func (s *Service) TestNotification() error {
 	return fmt.Errorf("notification test requires an enabled system channel")
 }
 func (s *Service) AutostartStatus() AutostartStatus {
-	return AutostartStatus{Supported: false, Platform: "unimplemented"}
+	st, err := autostart.New(s.options.BinaryPath).Status()
+	if err != nil {
+		return AutostartStatus{Error: err.Error()}
+	}
+	return AutostartStatus{Supported: st.Supported, Enabled: st.Enabled, Platform: st.Platform, Path: st.Path}
 }
-func (s *Service) SetAutostart(bool) error {
-	return fmt.Errorf("autostart is unavailable on this platform")
+func (s *Service) SetAutostart(enabled bool) error {
+	m := autostart.New(s.options.BinaryPath)
+	if enabled {
+		return m.Enable()
+	}
+	return m.Disable()
 }

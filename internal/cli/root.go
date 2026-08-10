@@ -35,6 +35,7 @@ func NewRootCmd(ctx context.Context, streams Streams) *cobra.Command {
 		newInitCmd(streams),
 		newSetupCmd(streams),
 		newBridgeCmd(streams),
+		newTrayCmd(streams),
 		newClaudeCmd(streams),
 		newZcodeCmd(streams),
 		newGrokCmd(streams),
@@ -51,6 +52,8 @@ func NewRootCmd(ctx context.Context, streams Streams) *cobra.Command {
 		newHandleDroidHookCmd(ctx, streams),
 		newHandleOpenCodeHookCmd(ctx, streams),
 		newHandleWorkBuddyHookCmd(ctx, streams),
+		newHandleHermesHookCmd(ctx, streams),
+		newHandleOpenClawHookCmd(ctx, streams),
 		newLinuxNotifyWaitCmd(ctx),
 	)
 

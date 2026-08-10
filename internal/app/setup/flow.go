@@ -19,6 +19,8 @@ const (
 	agentDroid      = "droid"
 	agentOpencode   = "opencode"
 	agentWorkBuddy  = "workbuddy"
+	agentHermes     = "hermes"
+	agentOpenClaw   = "openclaw"
 	channelSystem   = "system"
 	channelFeishu   = "feishu"
 	channelWechat   = "wechat"
@@ -131,6 +133,12 @@ func (s *Service) agentOptions(cfg config.Config) ([]PromptOption, string) {
 			defaultAgent = agentWorkBuddy
 		}
 	}
+	if s.hermesIntegration != nil && s.hermesIntegration.DetectInstalled() {
+		options = append(options, PromptOption{Label: "Hermes Agent", Value: agentHermes})
+	}
+	if s.openclawIntegration != nil && s.openclawIntegration.DetectInstalled() {
+		options = append(options, PromptOption{Label: "OpenClaw", Value: agentOpenClaw})
+	}
 	return options, defaultAgent
 }
 
@@ -203,6 +211,8 @@ func eventOptionsForAgent(agent string) []PromptOption {
 		return opencodeEventOptionsFn()
 	case agentWorkBuddy:
 		return claudeEventOptionsFn()
+	case agentHermes, agentOpenClaw:
+		return claudeEventOptionsFn()
 	default:
 		return codexEventOptionsFn()
 	}
@@ -222,6 +232,10 @@ func channelsForAgent(cfg config.Config, agent string) config.ChannelsConfig {
 		return cfg.Notify.OpenCode.Channels
 	case agentWorkBuddy:
 		return cfg.Notify.WorkBuddy.Channels
+	case agentHermes:
+		return cfg.Notify.Hermes.Channels
+	case agentOpenClaw:
+		return cfg.Notify.OpenClaw.Channels
 	default:
 		return cfg.Notify.Codex.Channels
 	}
@@ -241,6 +255,10 @@ func eventsForAgent(cfg config.Config, agent string) []string {
 		return cfg.Notify.OpenCode.Events
 	case agentWorkBuddy:
 		return cfg.Notify.WorkBuddy.Events
+	case agentHermes:
+		return cfg.Notify.Hermes.Events
+	case agentOpenClaw:
+		return cfg.Notify.OpenClaw.Events
 	default:
 		return cfg.Notify.Codex.Events
 	}
@@ -262,6 +280,10 @@ func (s *Service) configureAgent(req configureAgentRequest) (configuredAgent, er
 		return s.configureOpenCode(req)
 	case agentWorkBuddy:
 		return s.configureWorkBuddy(req)
+	case agentHermes:
+		return s.configureExternal(req, s.hermesIntegration, &req.cfg.Agent.Hermes, &req.cfg.Notify.Hermes, "Hermes")
+	case agentOpenClaw:
+		return s.configureExternal(req, s.openclawIntegration, &req.cfg.Agent.OpenClaw, &req.cfg.Notify.OpenClaw, "OpenClaw")
 	default:
 		return configuredAgent{}, fmt.Errorf("unsupported agent: %s", req.agent)
 	}
@@ -486,6 +508,47 @@ func (s *Service) configureWorkBuddy(req configureAgentRequest) (configuredAgent
 	next.Agent.WorkBuddy.InstalledPaths = config.RecordInstalledPath(next.Agent.WorkBuddy.InstalledPaths, settingsPath)
 	next.Agent.WorkBuddy.Enabled = true
 	return configuredAgent{cfg: next, settingsPath: settingsPath}, nil
+}
+
+func (s *Service) configureExternal(req configureAgentRequest, integration agentintegrations.Integration, target *config.AgentTargetConfig, notifyCfg *config.AgentNotifyConfig, name string) (configuredAgent, error) {
+	next := req.cfg
+	target = func() *config.AgentTargetConfig {
+		if name == "Hermes" {
+			return &next.Agent.Hermes
+		}
+		return &next.Agent.OpenClaw
+	}()
+	notifyCfg = func() *config.AgentNotifyConfig {
+		switch name {
+		case "Hermes":
+			return &next.Notify.Hermes
+		default:
+			return &next.Notify.OpenClaw
+		}
+	}()
+	notifyCfg.Channels = applyChannelSelection(notifyCfg.Channels, req.channels)
+	notifyCfg.Events = dedupeStrings(req.events)
+	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {
+		return configuredAgent{}, err
+	}
+	channels, err := promptWebhookURLs(req.prompter, notifyCfg.Channels, req.channels)
+	if err != nil {
+		return configuredAgent{}, err
+	}
+	notifyCfg.Channels = channels
+	scope := normalizedInstallScope(target.InstallScope)
+	path, err := integration.SettingsPath(scope)
+	if err != nil {
+		return configuredAgent{}, err
+	}
+	if err := integration.Install(path, common.ResolveBinaryPath(req.binaryPath)); err != nil {
+		return configuredAgent{}, err
+	}
+	req.output.Writef("%s hooks installed: %s\n", name, path)
+	target.InstallScope = scope
+	target.InstalledPaths = config.RecordInstalledPath(target.InstalledPaths, path)
+	target.Enabled = true
+	return configuredAgent{cfg: next, settingsPath: path}, nil
 }
 
 func applyChannelSelection(channels config.ChannelsConfig, selection channelSelection) config.ChannelsConfig {
