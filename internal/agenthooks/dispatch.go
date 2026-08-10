@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/hellolib/agent-notify/internal/bridgeclient"
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/linuxfocus"
 	"github.com/hellolib/agent-notify/internal/notify"
@@ -18,6 +19,11 @@ func Dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 	msg.SourceApp = notify.DetectSourceApp()
 	// Windows 上 hook stdin 偶发把路径中的中文变成 '?'；用 env / Getwd 纠正
 	msg.Workspace = notify.ResolveWorkspace(msg.Workspace)
+	if sent, err := bridgeclient.TryDispatch(ctx, msg); sent {
+		return nil
+	} else if err != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("bridge dispatch fallback: %v", err))
+	}
 
 	// session_start 是纯副作用事件：仅在 Linux / macOS / Windows 捕获点击聚焦的目标窗口并缓存，
 	// 永不产生通知，也不受任何 agent 的事件配置控制。其它平台直接返回。

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/hellolib/agent-notify/internal/config"
+	"github.com/hellolib/agent-notify/internal/notify"
 )
 
 func NewHTTPHandler(service *Service, token []byte) http.Handler {
@@ -78,6 +79,27 @@ func NewHTTPHandler(service *Service, token []byte) http.Handler {
 		}
 		if service == nil {
 			jsonWrite(w, 500, map[string]string{"error": "bridge unavailable"})
+			return
+		}
+		if r.Method == http.MethodPost {
+			var msg notify.Message
+			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&msg) != nil {
+				jsonWrite(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+				return
+			}
+			if msg.Agent == "" || msg.Event == "" {
+				jsonWrite(w, http.StatusBadRequest, map[string]string{"error": "agent and event are required"})
+				return
+			}
+			if err := service.IngestMessage(r.Context(), msg); err != nil {
+				jsonWrite(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			jsonWrite(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+			return
+		}
+		if r.Method != http.MethodGet {
+			jsonWrite(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
 		value, err := service.ListEvents(100)

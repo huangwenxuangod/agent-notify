@@ -96,3 +96,20 @@ func TestHTTPHandlerHealthIsPublicAndWritesRequireToken(t *testing.T) {
 		t.Fatalf("unknown status = %d, want 404", unknown.Code)
 	}
 }
+
+func TestHTTPHandlerAcceptsEventIngest(t *testing.T) {
+	root := t.TempDir()
+	svc, err := bridge.NewService(bridge.Options{ConfigPath: filepath.Join(root, "config.yaml"), StatePath: filepath.Join(root, "state.json"), LogPath: filepath.Join(root, "log")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := bridge.NewHTTPHandler(svc, []byte("token"))
+	body := bytes.NewBufferString(`{"agent":"codex","event":"run_completed","sessionid":"s1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/events", body)
+	req.Header.Set("Authorization", "Bearer token")
+	r := httptest.NewRecorder()
+	h.ServeHTTP(r, req)
+	if r.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
+	}
+}

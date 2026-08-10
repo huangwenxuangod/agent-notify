@@ -6,9 +6,12 @@ import (
 	"os"
 	"strings"
 
+	"context"
+	"github.com/hellolib/agent-notify/internal/agenthooks"
 	"github.com/hellolib/agent-notify/internal/agentintegrations"
 	"github.com/hellolib/agent-notify/internal/autostart"
 	"github.com/hellolib/agent-notify/internal/config"
+	"github.com/hellolib/agent-notify/internal/notify"
 	"github.com/hellolib/agent-notify/internal/state"
 )
 
@@ -108,6 +111,14 @@ func (s *Service) specs(cfg *config.Config) []agentSpec {
 
 func (s *Service) GetConfig() (config.Config, error)  { return config.Load(s.options.ConfigPath) }
 func (s *Service) SaveConfig(cfg config.Config) error { return config.Save(s.options.ConfigPath, cfg) }
+
+func (s *Service) IngestMessage(ctx context.Context, msg notify.Message) error {
+	cfg, err := s.GetConfig()
+	if err != nil {
+		return err
+	}
+	return agenthooks.Dispatch(ctx, cfg, s.options.StatePath, s.options.LogPath, msg)
+}
 
 func (s *Service) ScanAgents() ([]AgentStatus, error) {
 	cfg, err := s.GetConfig()
