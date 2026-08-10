@@ -5,22 +5,39 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/hellolib/agent-notify/internal/notify"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hellolib/agent-notify/internal/config"
+	"github.com/hellolib/agent-notify/internal/notify"
 )
 
 func TryDispatch(ctx context.Context, msg notify.Message) (bool, error) {
 	base := strings.TrimRight(strings.TrimSpace(os.Getenv("AGENT_NOTIFY_BRIDGE_URL")), "/")
-	if base == "" {
-		return false, nil
+	tokenPath := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_BRIDGE_TOKEN_FILE"))
+	if tokenPath == "" {
+		if path, err := config.BridgeTokenPath(); err == nil {
+			tokenPath = path
+		}
 	}
 	token := strings.TrimSpace(os.Getenv("AGENT_NOTIFY_BRIDGE_TOKEN"))
+	if token == "" && tokenPath != "" {
+		if data, err := os.ReadFile(filepath.Clean(tokenPath)); err == nil {
+			token = strings.TrimSpace(string(data))
+		}
+	}
+	if base == "" && token == "" {
+		return false, nil
+	}
+	if base == "" {
+		base = "http://127.0.0.1:45173"
+	}
 	if token == "" {
-		return false, fmt.Errorf("AGENT_NOTIFY_BRIDGE_TOKEN is required when bridge mode is enabled")
+		return false, fmt.Errorf("bridge token is missing (set AGENT_NOTIFY_BRIDGE_TOKEN or run ./deploy.sh up)")
 	}
 	body, err := json.Marshal(msg)
 	if err != nil {

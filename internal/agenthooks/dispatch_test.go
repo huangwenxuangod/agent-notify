@@ -35,6 +35,9 @@ func TestApplyFocusCacheRoutesByPlatform(t *testing.T) {
 }
 
 func TestDispatchAppendsNonSessionEventToJournal(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_BRIDGE_URL", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN_FILE", filepath.Join(t.TempDir(), "missing-token"))
 	root := t.TempDir()
 	statePath := filepath.Join(root, "state.json")
 	logPath := filepath.Join(root, "agent-notify.log")
