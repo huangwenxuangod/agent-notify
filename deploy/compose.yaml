@@ -1,0 +1,38 @@
+services:
+  control-plane:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      PORT: "45175"
+      DATA_DIR: "/var/lib/agent-notify"
+    volumes:
+      - agent-notify-data:/var/lib/agent-notify
+    ports:
+      - "127.0.0.1:45173:45175"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:45175/api/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: agent_notify
+      POSTGRES_USER: agent_notify
+      POSTGRES_PASSWORD: agent_notify
+    volumes:
+      - agent-notify-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_notify -d agent_notify"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    profiles: ["database"]
+
+volumes:
+  agent-notify-data:
+  agent-notify-postgres:
