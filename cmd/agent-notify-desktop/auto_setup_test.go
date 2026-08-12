@@ -26,6 +26,15 @@ func TestDesktopStartsHidden(t *testing.T) {
 	}
 }
 
+func TestDesktopShowArgumentMakesWindowVisible(t *testing.T) {
+	if desktopStartsHidden([]string{"agent-notify-desktop", "--show"}) {
+		t.Fatal("--show must make the desktop window visible")
+	}
+	if !desktopStartsHidden([]string{"agent-notify-desktop", "tray"}) {
+		t.Fatal("background tray startup must remain hidden")
+	}
+}
+
 func TestDesktopUsesSeparateHookAndAutostartBinaries(t *testing.T) {
 	options := desktopServiceOptions("/opt/agent-notify", "/Applications/Agent Notify.app/Contents/MacOS/Agent Notify")
 	if options.BinaryPath != "/opt/agent-notify" {

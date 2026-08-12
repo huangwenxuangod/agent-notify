@@ -48,7 +48,7 @@ desktop() {
     pgrep -f "$executable" >/dev/null || break
     sleep 1
   done
-  open -gj "$app_path"
+  open -gj "$app_path" --args --show
 }
 
 case "${1:-}" in

@@ -488,13 +488,24 @@ func desktopOptions(app *App, frontend fs.FS) *options.App {
 		Title:             "Agent Notify",
 		Width:             980,
 		Height:            700,
-		StartHidden:       true,
+		StartHidden:       desktopStartsHidden(os.Args),
 		HideWindowOnClose: true,
 		OnStartup:         app.startTray,
 		AssetServer:       &assetserver.Options{Assets: frontend},
 		Mac:               &mac.Options{TitleBar: mac.TitleBarHiddenInset()},
 		Bind:              []interface{}{app},
 	}
+}
+
+// desktopStartsHidden keeps login and tray launches unobtrusive while letting
+// the deploy command explicitly bring the control window to the foreground.
+func desktopStartsHidden(args []string) bool {
+	for _, arg := range args[1:] {
+		if arg == "--show" {
+			return false
+		}
+	}
+	return true
 }
 
 func main() {
