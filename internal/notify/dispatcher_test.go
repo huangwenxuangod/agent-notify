@@ -40,8 +40,23 @@ func TestDispatcherSendAllDoesNotStopOnSingleChannelFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("SendAll() error = nil, want aggregated error")
 	}
+	if !HasSuccessfulDelivery(err) {
+		t.Fatal("SendAll() error must retain the successful delivery")
+	}
 	if fail.calls != 1 || ok.calls != 1 {
 		t.Fatalf("calls = fail:%d ok:%d, want 1/1", fail.calls, ok.calls)
+	}
+}
+
+func TestDispatcherSendAllReportsNoSuccessWhenAllChannelsFail(t *testing.T) {
+	store := state.NewStore(filepath.Join(t.TempDir(), "state.json"))
+	dispatcher := NewDispatcher(store, 60*time.Second, &fakeSender{name: "ntfy", err: errors.New("down")})
+	err := dispatcher.SendAll(context.Background(), Message{Event: "run_completed", SessionID: "sess-1"})
+	if err == nil {
+		t.Fatal("SendAll() error = nil, want delivery error")
+	}
+	if HasSuccessfulDelivery(err) {
+		t.Fatal("all failed channels must not be reported as a partial success")
 	}
 }
 

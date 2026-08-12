@@ -1,4 +1,4 @@
-.PHONY: build test run clean install lint fmt vet help tag npm-publish release check-release-version
+.PHONY: build test run clean install lint fmt vet help tag bun-publish release check-release-version
 
 # Binary name
 BINARY_NAME=agent-notify
@@ -107,7 +107,7 @@ help:
 	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/ /'
 
 # Release parameters
-NPX_DIR=npx
+BUN_DIR=bun
 
 # VERSION 顶部有 `?=` 默认值(git describe),所以 `ifndef VERSION` 永远不成立——
 # 不传 VERSION 时它会静默变成 "v0.14.3-15-gabc1234-dirty" 之类,照样打 tag、
@@ -127,15 +127,15 @@ tag: check-release-version
 	git push origin $(VERSION)
 	@echo "Tag $(VERSION) created and pushed to remote"
 
-## npm-publish: Manually publish npm package (fallback; CI normally does this)
-npm-publish: check-release-version
-	@echo "Publishing to npm..."
+## bun-publish: Manually publish Bun package to npm Registry (fallback; CI normally does this)
+bun-publish: check-release-version
+	@echo "Publishing with Bun..."
 	@echo "NOTE: release.yml publishes automatically after the GitHub Release is"
 	@echo "      uploaded. Only run this by hand if that job failed."
-	@NPM_VERSION=$$(echo $(VERSION) | sed 's/^v//'); \
-	cd $(NPX_DIR) && npm version $$NPM_VERSION --no-git-tag-version --allow-same-version && npm publish --access public
-	@git checkout $(NPX_DIR)/package.json $(NPX_DIR)/package-lock.json 2>/dev/null || true
-	@echo "Published $(VERSION) to npm"
+	@BUN_VERSION=$$(echo $(VERSION) | sed 's/^v//'); \
+	cd $(BUN_DIR) && bun pm pkg set version="$$BUN_VERSION" && bun publish --access public
+	@git checkout $(BUN_DIR)/package.json 2>/dev/null || true
+	@echo "Published $(VERSION) to npm Registry"
 
 ## release: Push the release tag; CI builds, publishes the GitHub Release, then npm (usage: make release VERSION=v0.1.0)
 release: check-release-version
@@ -145,8 +145,8 @@ release: check-release-version
 	@echo "Tag pushed. release.yml now:"
 	@echo "  1. builds the 6-target matrix"
 	@echo "  2. publishes the GitHub Release + SHA256SUMS"
-	@echo "  3. publishes to npm (only after step 2 succeeds)"
+	@echo "  3. publishes the Bun package to npm Registry (only after step 2 succeeds)"
 	@echo ""
 	@echo "Watch it with: gh run watch"
-	@echo "npm publish is intentionally NOT run from here: doing so raced the"
-	@echo "release build and left first-time npx users downloading a 404."
+	@echo "bun publish is intentionally NOT run from here: doing so raced the"
+	@echo "release build and left first-time bunx users downloading a 404."

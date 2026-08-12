@@ -113,3 +113,116 @@ func TestHTTPHandlerAcceptsEventIngest(t *testing.T) {
 		t.Fatalf("status=%d body=%s", r.Code, r.Body.String())
 	}
 }
+
+func TestHTTPHandlerRecordsHostEventWithoutDispatchingItAgain(t *testing.T) {
+	root := t.TempDir()
+	svc, err := bridge.NewService(bridge.Options{ConfigPath: filepath.Join(root, "config.yaml"), StatePath: filepath.Join(root, "state.json"), LogPath: filepath.Join(root, "log")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := bridge.NewHTTPHandler(svc, []byte("token"))
+	req := httptest.NewRequest(http.MethodPost, "/api/events", bytes.NewBufferString(`{"agent":"codex","event":"run_completed","sessionid":"host-s1"}`))
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("X-Agent-Notify-Journal-Only", "true")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	events, err := svc.ListEvents(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Result != "sent" || events[0].SessionID != "host-s1" {
+		t.Fatalf("events=%#v, want recorded host event", events)
+	}
+}
+
+func TestHTTPHandlerFreezesConfiguredRemoteChannels(t *testing.T) {
+	root := t.TempDir()
+	svc, err := bridge.NewService(bridge.Options{ConfigPath: filepath.Join(root, "config.yaml"), StatePath: filepath.Join(root, "state.json"), LogPath: filepath.Join(root, "log")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Remote.Ntfy.Enabled = true
+	cfg.Remote.Ntfy.TopicURL = "https://ntfy.sh/test"
+	if err := svc.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	h := bridge.NewHTTPHandler(svc, []byte("token"))
+	req := httptest.NewRequest(http.MethodPut, "/api/freeze", bytes.NewBufferString(`{"duration_seconds":1800}`))
+	req.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var value struct {
+		Channels []string `json:"channels"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &value); err != nil {
+		t.Fatal(err)
+	}
+	if len(value.Channels) != 1 || value.Channels[0] != "ntfy" {
+		t.Fatalf("channels=%v", value.Channels)
+	}
+}
+
+func TestHTTPHandlerDoesNotFreezeEmptyDefaultRemoteChannels(t *testing.T) {
+	root := t.TempDir()
+	svc, err := bridge.NewService(bridge.Options{ConfigPath: filepath.Join(root, "config.yaml"), StatePath: filepath.Join(root, "state.json"), LogPath: filepath.Join(root, "log")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SaveConfig(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	h := bridge.NewHTTPHandler(svc, []byte("token"))
+	req := httptest.NewRequest(http.MethodPut, "/api/freeze", bytes.NewBufferString(`{"duration_seconds":1800}`))
+	req.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestHTTPHandlerTestsOnlyRequestedRemoteChannel(t *testing.T) {
+	var ntfyCalls, slackCalls int
+	ntfy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ntfyCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ntfy.Close()
+	slack := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slackCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer slack.Close()
+
+	root := t.TempDir()
+	svc, err := bridge.NewService(bridge.Options{ConfigPath: filepath.Join(root, "config.yaml"), StatePath: filepath.Join(root, "state.json"), LogPath: filepath.Join(root, "log")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Remote.Ntfy.Enabled = true
+	cfg.Remote.Ntfy.TopicURL = ntfy.URL + "/topic"
+	cfg.Remote.Slack.Enabled = true
+	cfg.Remote.Slack.WebhookURL = slack.URL
+	if err := svc.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	h := bridge.NewHTTPHandler(svc, []byte("token"))
+	req := httptest.NewRequest(http.MethodPost, "/api/test-channel", bytes.NewBufferString(`{"channel":"ntfy"}`))
+	req.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if ntfyCalls != 1 || slackCalls != 0 {
+		t.Fatalf("ntfyCalls=%d slackCalls=%d", ntfyCalls, slackCalls)
+	}
+}

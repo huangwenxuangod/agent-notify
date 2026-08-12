@@ -99,3 +99,35 @@ func TestHookBinaryMissing(t *testing.T) {
 		}
 	})
 }
+
+func TestHookBinaryMissingSource(t *testing.T) {
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "agent-notify")
+	if err := os.WriteFile(realBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	write := func(t *testing.T, name, source string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	t.Run("Hermes reports a stale Python runtime path", func(t *testing.T) {
+		path := write(t, "handler.py", `subprocess.run(["/nonexistent/agent-notify", "handle-hermes-hook"])`)
+		if !hookBinaryMissingSource(path, "handle-hermes-hook") {
+			t.Fatal("stale Hermes runtime was not reported")
+		}
+	})
+
+	t.Run("OpenClaw accepts an existing JavaScript runtime path", func(t *testing.T) {
+		path := write(t, "index.js", `const binary = "`+realBin+`";
+child.spawn(binary, ["handle-openclaw-hook"]);`)
+		if hookBinaryMissingSource(path, "handle-openclaw-hook") {
+			t.Fatal("existing OpenClaw runtime reported as missing")
+		}
+	})
+}

@@ -30,9 +30,9 @@ func (h *HermesIntegration) SettingsPath(scope string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return filepath.Join(home, ".hermes", "config.yaml"), nil
+		return filepath.Join(home, ".hermes", "hooks", "agent-notify"), nil
 	case "project":
-		return filepath.Join(".hermes", "config.yaml"), nil
+		return filepath.Join(".hermes", "hooks", "agent-notify"), nil
 	default:
 		return "", fmt.Errorf("unsupported scope: %s", scope)
 	}

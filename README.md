@@ -16,7 +16,7 @@
 
 ## Overview
 
-Agent Notify hooks into the lifecycle events of AI coding agents (Claude Code, Codex, ZCode, Grok, Droid, OpenCode, etc.) and pushes them to your phone and desktop. Get notified the moment your agent needs permission, is waiting for input, finishes a task, or fails — so you never have to babysit a running agent.
+Agent Notify hooks into the lifecycle events of AI coding agents (Claude Code, Codex, WorkBuddy, Hermes, OpenClaw, ZCode, Grok, Droid, OpenCode, etc.) and pushes them to your phone and desktop. Get notified the moment your agent needs permission, is waiting for input, finishes a task, or fails — so you never have to babysit a running agent.
 
 Supported delivery channels: **OS-native system notifications**, **Feishu/Lark**, **WeChat Work (企业微信)**, **DingTalk (钉钉)**, **Bark (iOS)**, and **ntfy**.
 
@@ -27,8 +27,20 @@ Supported delivery channels: **OS-native system notifications**, **Feishu/Lark**
 ## Quick Start
 
 ```bash
-npx agent-notify
+bunx agent-notify
 ```
+
+## Desktop and Docker
+
+The host Hook is the delivery path: it sends system and configured remote notifications directly, even while Docker is unavailable. Docker runs the optional Bridge for the desktop dashboard, event history, channel tests, and remote freeze state.
+
+```bash
+./deploy.sh up       # start the Bridge on 127.0.0.1:45173
+./deploy.sh desktop  # build and launch the macOS menu-bar app hidden
+./deploy.sh status
+```
+
+`~/.agent-notify/config.yaml` is the configuration authority. The desktop app mirrors it to the Bridge when it is online. WorkBuddy caches hook settings in its `codebuddy --serve` process; restart WorkBuddy after installing or updating its hooks.
 
 
 
@@ -106,7 +118,7 @@ On every subsequent run it checks the local binary version: it downloads if miss
 
 > You don't need to edit config files by hand — this section is for reference only.
 
-Agent Notify's own config lives at `~/.agent-notify/config.yaml`. **New installs start with all agents and channels disabled** — run `npx agent-notify` (setup wizard) once to enable the agents and channels you want. This avoids showing unconfigured agents as ready in view/doctor after a partial setup. Existing config files are left unchanged.
+Agent Notify's own config lives at `~/.agent-notify/config.yaml`. **New installs start with all agents and channels disabled** — run `bunx agent-notify` (setup wizard) once to enable the agents and channels you want. This avoids showing unconfigured agents as ready in view/doctor after a partial setup. Existing config files are left unchanged.
 
 Agent integration config locations:
 
@@ -122,7 +134,7 @@ Agent integration config locations:
 1. **Create a single-person notification group**: start a group chat in WeChat Work (pull in a few colleagues). After it's created, **do not post anything**, then remove the others — the group becomes your personal notification channel.
 2. **Add a bot**: "Group Settings" → "Message Push" → "Add" → "Custom Message Push", name it and save.
 3. **Get the webhook URL**: copy the generated URL, which looks like `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx`.
-4. **Bind it**: run `npx agent-notify`, enable the WeChat Work channel in the setup wizard, and paste the webhook URL.
+4. **Bind it**: run `bunx agent-notify`, enable the WeChat Work channel in the setup wizard, and paste the webhook URL.
 > Older WeChat Work versions: "Group Settings" → "Group Bots" → "Add Bot" → "New Bot", name it and save.
 
 

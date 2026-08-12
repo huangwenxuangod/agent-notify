@@ -49,3 +49,26 @@ func TestBuildHookSettingsUsesCodeBuddyEvents(t *testing.T) {
 	}
 }
 
+func TestIsInstalledWithBinaryRejectsStaleHookPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := Install(path, "/private/tmp/agent-notify-desktop-next"); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := IsInstalledWithBinary(path, "/Users/tester/.agent-notify/agent-notify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed {
+		t.Fatal("stale hook command must not be considered installed")
+	}
+	if err := Install(path, "/Users/tester/.agent-notify/agent-notify"); err != nil {
+		t.Fatal(err)
+	}
+	installed, err = IsInstalledWithBinary(path, "/Users/tester/.agent-notify/agent-notify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !installed {
+		t.Fatal("refreshed hook command must be considered installed")
+	}
+}

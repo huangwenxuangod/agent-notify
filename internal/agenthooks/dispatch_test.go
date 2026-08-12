@@ -58,6 +58,13 @@ func TestDispatchAppendsNonSessionEventToJournal(t *testing.T) {
 	}
 }
 
+func TestDispatchRecordsPartialWhenOneRemoteChannelSucceeds(t *testing.T) {
+	result := deliveryResult(&notify.DeliveryError{Successful: true, Details: []string{"ntfy: down"}})
+	if result != "partial" {
+		t.Fatalf("deliveryResult() = %q, want partial", result)
+	}
+}
+
 func TestBuildSendersUsesClaudeCodeConfigByDefault(t *testing.T) {
 	cfg := config.Default()
 	cfg.Notify.ClaudeCode.Channels.System.Enabled = true

@@ -8,6 +8,7 @@ node_modules/
 docs/superpowers
 dist/
 coverage/
+desktop/wailsjs/
 
 .env
 .env.*
@@ -16,4 +17,8 @@ bin/
 main
 agent-notify
 
-npx/README.md
+# Local runtime outputs; the source Docker and desktop assets are tracked.
+deploy/www/
+cmd/agent-notify-desktop/build/bin/
+
+bun/README.md

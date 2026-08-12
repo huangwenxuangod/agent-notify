@@ -2,7 +2,6 @@ name: Test
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 jobs:
@@ -22,19 +21,29 @@ jobs:
       - name: Go test
         run: go test ./...
 
-  npx-test:
+  bun-launcher-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '20'
+          bun-version: '1.3.14'
 
       - name: Install dependencies
-        working-directory: npx
-        run: npm ci
+        working-directory: bun
+        run: bun install --frozen-lockfile
 
-      - name: npm test
-        working-directory: npx
-        run: npm test
+      - name: Bun launcher checks
+        working-directory: bun
+        run: |
+          bun run typecheck
+          bun test
+
+  docker-compose-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Docker Compose configuration
+        run: docker compose -f deploy/compose.yaml config --quiet

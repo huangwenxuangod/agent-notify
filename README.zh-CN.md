@@ -16,7 +16,7 @@
 
 ## 项目简介
 
-一个面向 AI Agent 的通知配置工具。支持将 Claude Code、Codex、ZCode (Z.ai)、Grok、Droid、OpenCode 等 Agent 的事件通知推送到飞书、企业微信、钉钉、Bark、ntfy 和系统通知。
+一个面向 AI Agent 的通知配置工具。支持将 Claude Code、Codex、WorkBuddy、Hermes、OpenClaw、ZCode (Z.ai)、Grok、Droid、OpenCode 等 Agent 的事件通知推送到飞书、企业微信、钉钉、Bark、ntfy 和系统通知。
 
 <p align="center">
   <img src="assist/demo.gif" alt="Agent Notify 演示" width="800">
@@ -25,8 +25,20 @@
 ## 快速开始
 
 ```bash
-npx agent-notify
+bunx agent-notify
 ```
+
+## 桌面端与 Docker
+
+Host Hook 是通知数据面：系统通知和已配置的远程通知都由本机 Hook 直接发送，即使 Docker 不可用也不受影响。Docker 只运行可选的 Bridge，用于桌面端状态、事件历史、通道测试和远程静默状态。
+
+```bash
+./deploy.sh up       # 启动 Bridge，端口为 127.0.0.1:45173
+./deploy.sh desktop  # 构建并隐藏启动 macOS 菜单栏应用
+./deploy.sh status
+```
+
+`~/.agent-notify/config.yaml` 是唯一配置源；桌面端会在 Bridge 在线时自动镜像过去。WorkBuddy 会在 `codebuddy --serve` 进程中缓存 Hook 配置，安装或更新 Hook 后需要重启 WorkBuddy。
 
 
 ## 功能特性
@@ -85,7 +97,7 @@ npx agent-notify
 ## 安装说明
 
 ```bash
-npx agent-notify
+bunx agent-notify
 ```
 
 首次运行会从 GitHub Releases 下载当前 npm 包版本对应平台的二进制文件，并安装到：
@@ -104,7 +116,7 @@ npx agent-notify
 
 > agent-notify 不需要手动处理配置文件，该章节仅是为了说明配置相关信息。
 
-agent-notify 自身配置位于 `~/.agent-notify/config.yaml`。**新安装默认关闭所有 Agent 与通知渠道**——需运行一次 `npx agent-notify`（配置向导）启用你需要的 Agent 与渠道。这样可避免只配置了一个 Agent 后，在「查看配置 / 诊断」里把未配置的 Agent 显示为已就绪。已有配置文件不受影响。
+agent-notify 自身配置位于 `~/.agent-notify/config.yaml`。**新安装默认关闭所有 Agent 与通知渠道**——需运行一次 `bunx agent-notify`（配置向导）启用你需要的 Agent 与渠道。这样可避免只配置了一个 Agent 后，在「查看配置 / 诊断」里把未配置的 Agent 显示为已就绪。已有配置文件不受影响。
 
 Agent 集成配置位置：
 
@@ -120,7 +132,7 @@ Agent 集成配置位置：
 1. **创建单人通知群**：在企业微信中发起群聊（随便拉几个同事），创建成功后**不要在群里发言**，直接将其他人移出，此时该群将变成你的单人通知群；
 2. **添加机器人**：「群设置」->「消息推送」->「添加」-> 「自定义消息推送」，命名并保存；
 3. **获取 Webhook 地址**：复制生成的地址，格式类似 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx`；
-4. **绑定配置**：运行 `npx agent-notify`，在配置向导中选择启用企业微信渠道，粘贴 Webhook URL 即可；
+4. **绑定配置**：运行 `bunx agent-notify`，在配置向导中选择启用企业微信渠道，粘贴 Webhook URL 即可；
 > 旧版企业微信添加机器人步骤：「群设置」->「群机器人」->「添加机器人」-> 「新建机器人」，命名并保存
 
 ## 工作流程

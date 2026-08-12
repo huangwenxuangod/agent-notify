@@ -62,6 +62,21 @@ func TestNtfySenderSendSuccess(t *testing.T) {
 	}
 }
 
+func TestNtfySenderUsesBearerToken(t *testing.T) {
+	var authorization string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	if err := NewNtfySenderWithAccessToken(srv.URL+"/topic", "tk_test").Send(context.Background(), Message{Title: "T", Body: "B"}); err != nil {
+		t.Fatal(err)
+	}
+	if authorization != "Bearer tk_test" {
+		t.Fatalf("authorization = %q, want bearer token", authorization)
+	}
+}
+
 func TestNtfySenderSendWithWorkspace(t *testing.T) {
 	var gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,8 @@
+{
+  "name": "agent-notify",
+  "outputfilename": "agent-notify",
+  "frontend:dir": "../../desktop",
+  "frontend:install": "bun install --frozen-lockfile",
+  "frontend:build": "bun run build",
+  "author": {"name": "Agent Notify"}
+}

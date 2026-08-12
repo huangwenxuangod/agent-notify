@@ -45,5 +45,5 @@ func (w *WorkBuddyIntegration) Install(path, binaryPath string) error {
 }
 func (w *WorkBuddyIntegration) Uninstall(path string) error { return workbuddyhooks.Uninstall(path) }
 func (w *WorkBuddyIntegration) IsHookInstalled(path string) (bool, error) {
-	return workbuddyhooks.IsInstalled(path)
+	return workbuddyhooks.IsInstalledWithBinary(path, common.HookBinaryPath())
 }

@@ -186,6 +186,18 @@ func TestService_Print(t *testing.T) {
 		CodexSystemEnabled:      false,
 		ClaudeIntegrationStatus: StatusInstalled,
 		CodexIntegrationStatus:  StatusAgentMissing,
+		WorkBuddyInstalled:      true,
+		WorkBuddyHookInstalled:  true,
+		WorkBuddySystemEnabled:  true,
+		WorkBuddyIntegrationStatus: StatusInstalled,
+		HermesInstalled:             true,
+		HermesHookInstalled:         true,
+		HermesSystemEnabled:         true,
+		HermesIntegrationStatus:     StatusInstalled,
+		OpenClawInstalled:           true,
+		OpenClawHookInstalled:       true,
+		OpenClawSystemEnabled:       true,
+		OpenClawIntegrationStatus:   StatusInstalled,
 	}
 
 	svc.Print(output, result)
@@ -208,6 +220,11 @@ func TestService_Print(t *testing.T) {
 	// Agent name is left-padded to 12 runes via %-12s ("Claude Code ").
 	if !strings.Contains(output.output, "| Claude Code  |  ✅  |  ✅  |  ✅  |  ❌  |") {
 		t.Fatalf("expected Claude channel row with personal WeChat enabled:\n%s", output.output)
+	}
+	for _, name := range []string{"WorkBuddy", "Hermes", "OpenClaw"} {
+		if !strings.Contains(output.output, name) {
+			t.Fatalf("expected %s to appear in diagnostics output:\n%s", name, output.output)
+		}
 	}
 }
 

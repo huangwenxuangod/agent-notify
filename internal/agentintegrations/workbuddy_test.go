@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hellolib/agent-notify/internal/common"
 	"github.com/hellolib/agent-notify/internal/testutil"
 )
 
@@ -32,7 +33,7 @@ func TestWorkBuddyIntegrationSettingsPath(t *testing.T) {
 func TestWorkBuddyIntegrationInstallsManagedHooks(t *testing.T) {
 	i := NewWorkBuddyIntegration()
 	path := filepath.Join(t.TempDir(), "settings.json")
-	if err := i.Install(path, "/opt/agent-notify"); err != nil {
+	if err := i.Install(path, common.HookBinaryPath()); err != nil {
 		t.Fatal(err)
 	}
 	installed, err := i.IsHookInstalled(path)

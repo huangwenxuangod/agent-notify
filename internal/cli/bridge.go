@@ -123,11 +123,15 @@ func newSetupCmd(streams Streams) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := bridge.NewService(bridge.Options{ConfigPath: cfgPath, StatePath: statePath, LogPath: logPath, BinaryPath: common.ResolveBinaryPath(binaryPath)})
+			resolvedBinary := common.ResolveBinaryPath(binaryPath)
+			if binaryPath == "" {
+				resolvedBinary = common.HookBinaryPath()
+			}
+			svc, err := bridge.NewService(bridge.Options{ConfigPath: cfgPath, StatePath: statePath, LogPath: logPath, BinaryPath: resolvedBinary})
 			if err != nil {
 				return err
 			}
-			result, err := svc.InstallAgents(bridge.SetupRequest{Agents: agents, Scope: scope, BinaryPath: common.ResolveBinaryPath(binaryPath)})
+			result, err := svc.InstallAgents(bridge.SetupRequest{Agents: agents, Scope: scope, BinaryPath: resolvedBinary})
 			if err != nil {
 				return err
 			}

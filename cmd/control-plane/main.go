@@ -22,6 +22,7 @@ func newHandler(dataDir string) (http.Handler, error) {
 		StatePath:  filepath.Join(dataDir, "state.json"),
 		LogPath:    filepath.Join(dataDir, "agent-notify.log"),
 		BinaryPath: "/usr/local/bin/agent-notify",
+		RemoteOnly: true,
 	})
 	if err != nil {
 		return nil, err

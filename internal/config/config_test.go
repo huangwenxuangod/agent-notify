@@ -14,8 +14,8 @@ func TestDefaultConfigUsesAgentScopedNotifyConfig(t *testing.T) {
 	cfg := Default()
 	allEvents := []string{"permission_required", "input_required", "run_completed", "run_failed"}
 
-	if cfg.Version != 1 {
-		t.Fatalf("Version = %d, want 1", cfg.Version)
+	if cfg.Version != 3 {
+		t.Fatalf("Version = %d, want 3", cfg.Version)
 	}
 	// No agent or channel is pre-enabled: first-time view config stays clean
 	// until the user explicitly configures an agent / channel.
@@ -54,6 +54,12 @@ func TestDefaultConfigUsesAgentScopedNotifyConfig(t *testing.T) {
 	}
 	if cfg.Notify.Codex.Channels.Bark.Enabled {
 		t.Fatal("Codex bark should be disabled by default")
+	}
+	if !cfg.Remote.Feishu.Enabled || !cfg.Remote.Ntfy.Enabled || !cfg.Remote.Slack.Enabled {
+		t.Fatal("remote channels should be enabled by default for direct configuration")
+	}
+	if anyRemoteChannelEnabled(cfg.Remote) {
+		t.Fatal("empty remote endpoints must not count as configured delivery channels")
 	}
 }
 

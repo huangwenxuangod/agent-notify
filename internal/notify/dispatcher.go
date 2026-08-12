@@ -19,6 +19,21 @@ type Dispatcher struct {
 	senders []Sender
 }
 
+// DeliveryError retains whether at least one configured channel accepted the
+// message. Callers use this to distinguish a total failure from partial
+// delivery in the event journal.
+type DeliveryError struct {
+	Successful bool
+	Details    []string
+}
+
+func (e *DeliveryError) Error() string { return strings.Join(e.Details, "; ") }
+
+func HasSuccessfulDelivery(err error) bool {
+	var delivery *DeliveryError
+	return errors.As(err, &delivery) && delivery.Successful
+}
+
 func NewDispatcher(store *state.Store, window time.Duration, senders ...Sender) *Dispatcher {
 	return &Dispatcher{
 		store:   store,
@@ -33,6 +48,7 @@ func NewDispatcher(store *state.Store, window time.Duration, senders ...Sender) 
 // 错误仅记入返回值供调用方写日志,绝不因 store 中止剩余 sender。
 func (d *Dispatcher) SendAll(ctx context.Context, msg Message) error {
 	var errs []string
+	successful := false
 	for _, sender := range d.senders {
 		now := time.Now()
 		key := dedupeKey(msg, sender.Name(), os.Getppid())
@@ -51,13 +67,14 @@ func (d *Dispatcher) SendAll(ctx context.Context, msg Message) error {
 		if err := d.store.MarkSent(key, d.window, now); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: mark sent: %v", sender.Name(), err))
 		}
+		successful = true
 	}
 
 	if len(errs) == 0 {
 		return nil
 	}
 
-	return errors.New(strings.Join(errs, "; "))
+	return &DeliveryError{Successful: successful, Details: errs}
 }
 
 // dedupeKey 构造去重键：agent \x00 session \x00 event \x00 contentHash \x00 sender。

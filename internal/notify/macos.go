@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -17,36 +18,56 @@ type Runner func(ctx context.Context, name string, args ...string) error
 type PathResolver func() string
 
 type MacOSSender struct {
-	run                Runner
-	clickToFocus       bool
-	focusPrecision     string
-	notifierPath       PathResolver
-	macFocusHelperPath func() string // resolves mac-focus-helper path; "" if absent
-	ppid               func() int
+	run            Runner
+	clickToFocus   bool
+	focusPrecision string
+	notifierPath   PathResolver
+	// 未注册的 terminal-notifier 在现代 macOS 上可能退出成功但被
+	// NotificationCenter 丢弃；仅已注册 bundle 使用它，其他情况走 AppleScript。
+	useLegacyTerminalNotifier bool
+	macFocusHelperPath        func() string // resolves mac-focus-helper path; "" if absent
+	ppid                      func() int
 }
 
 // NewMacOSSender 构造 macOS 系统通知发送器。clickToFocus 为 true 时，点击通知会激活宿主应用。
 // focusPrecision 控制聚焦精度（"app" | "window"），窗口级行为在 Task 3 实现。
 func NewMacOSSender(run Runner, clickToFocus bool, focusPrecision string) *MacOSSender {
+	notifierPath := defaultTerminalNotifierPath()
 	return &MacOSSender{
-		run:                run,
-		clickToFocus:       clickToFocus,
-		focusPrecision:     focusPrecision,
-		notifierPath:       defaultTerminalNotifierPath,
-		macFocusHelperPath: defaultMacFocusHelperPath,
-		ppid:               os.Getppid,
+		run:                       run,
+		clickToFocus:              clickToFocus,
+		focusPrecision:            focusPrecision,
+		notifierPath:              func() string { return notifierPath },
+		useLegacyTerminalNotifier: registeredTerminalNotifierPath(notifierPath),
+		macFocusHelperPath:        defaultMacFocusHelperPath,
+		ppid:                      os.Getppid,
 	}
+}
+
+const registeredNotifierSuffix = "/Applications/Agent Notify Notifier.app/Contents/MacOS/terminal-notifier"
+
+// registeredTerminalNotifierPath reports whether path belongs to the per-user
+// Applications copy that NotificationCenter can resolve for click callbacks.
+func registeredTerminalNotifierPath(path string) bool {
+	path = filepath.ToSlash(filepath.Clean(path))
+	prefix, ok := strings.CutSuffix(path, registeredNotifierSuffix)
+	if !ok {
+		return false
+	}
+	user := strings.TrimPrefix(prefix, "/Users/")
+	return user != prefix && user != "" && !strings.Contains(user, "/")
 }
 
 // NewMacOSSenderWithResolver 供测试注入 notifierPath 解析。
 func NewMacOSSenderWithResolver(run Runner, clickToFocus bool, focusPrecision string, resolver PathResolver) *MacOSSender {
 	return &MacOSSender{
-		run:                run,
-		clickToFocus:       clickToFocus,
-		focusPrecision:     focusPrecision,
-		notifierPath:       resolver,
-		macFocusHelperPath: defaultMacFocusHelperPath,
-		ppid:               os.Getppid,
+		run:                       run,
+		clickToFocus:              clickToFocus,
+		focusPrecision:            focusPrecision,
+		notifierPath:              resolver,
+		useLegacyTerminalNotifier: true,
+		macFocusHelperPath:        defaultMacFocusHelperPath,
+		ppid:                      os.Getppid,
 	}
 }
 
@@ -57,22 +78,27 @@ func DefaultRunner(ctx context.Context, name string, args ...string) error {
 func (s *MacOSSender) Name() string { return "system" }
 
 func (s *MacOSSender) Send(ctx context.Context, msg Message) error {
-	// Use terminal-notifier if available for better notifications with icon support
-	if s.tryTerminalNotifier(ctx, msg) {
+	if s.useLegacyTerminalNotifier && s.tryTerminalNotifier(ctx, msg) {
 		return nil
 	}
 
-	// Fallback to osascript with improved content
+	// AppleScript is registered as a system application and macOS has confirmed
+	// actual banner delivery for it. The bundled legacy helper is not reliably
+	// discoverable by NotificationCenter on current macOS releases.
 	formattedBody := s.formatBody(msg)
 	script := fmt.Sprintf(`display notification %q with title %q sound name "Submarine"`, formattedBody, msg.Title)
 	return s.run(ctx, "osascript", "-e", script)
 }
 
 // defaultTerminalNotifierPath 返回 terminal-notifier 可执行文件路径：
-// 优先用随 npx 解压到 ~/.agent-notify/terminal-notifier.app 的本地预置 bundle，
+// 优先用随 bunx 解压到 ~/.agent-notify/terminal-notifier.app 的本地预置 bundle，
 // 其次回退到系统 PATH 上的 terminal-notifier。找不到返回空串。
 func defaultTerminalNotifierPath() string {
 	if home, err := os.UserHomeDir(); err == nil {
+		registeredExe := filepath.Join(home, "Applications", "Agent Notify Notifier.app", "Contents", "MacOS", "terminal-notifier")
+		if info, err := os.Stat(registeredExe); err == nil && !info.IsDir() {
+			return registeredExe
+		}
 		localExe := filepath.Join(home, ".agent-notify", "terminal-notifier.app", "Contents", "MacOS", "terminal-notifier")
 		if info, err := os.Stat(localExe); err == nil && !info.IsDir() {
 			return localExe
@@ -82,6 +108,39 @@ func defaultTerminalNotifierPath() string {
 		return p
 	}
 	return ""
+}
+
+// EnsureRegisteredTerminalNotifier installs the bundled helper in the user's
+// Applications folder so NotificationCenter recognizes its click callback.
+// Missing optional helper is deliberately a no-op: AppleScript remains usable.
+func EnsureRegisteredTerminalNotifier() error {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home directory: %w", err)
+	}
+	destination := filepath.Join(home, "Applications", "Agent Notify Notifier.app")
+	if info, err := os.Stat(filepath.Join(destination, "Contents", "MacOS", "terminal-notifier")); err == nil && !info.IsDir() {
+		return nil
+	}
+	source := filepath.Join(home, ".agent-notify", "terminal-notifier.app")
+	if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect notification helper: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return fmt.Errorf("create Applications directory: %w", err)
+	}
+	if err := exec.Command("/usr/bin/ditto", source, destination).Run(); err != nil {
+		return fmt.Errorf("install notification helper: %w", err)
+	}
+	if err := exec.Command("/usr/bin/open", "-a", destination).Run(); err != nil {
+		return fmt.Errorf("register notification helper: %w", err)
+	}
+	return nil
 }
 
 // defaultMacFocusHelperPath returns the mac-focus-helper executable path:

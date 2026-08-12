@@ -3,23 +3,37 @@ package notify
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
 // DingTalkSender sends notifications via DingTalk (钉钉) group bot webhook.
 type DingTalkSender struct {
 	webhookURL string
+	secret     string
 	httpClient *http.Client
 }
 
 // NewDingTalkSender creates a new DingTalkSender with the given webhook URL.
 func NewDingTalkSender(webhookURL string) *DingTalkSender {
+	return NewDingTalkSenderWithSecret(webhookURL, "")
+}
+
+// NewDingTalkSenderWithSecret creates a DingTalk custom-bot sender. A secret
+// adds timestamp/sign query parameters required by signed group bots.
+func NewDingTalkSenderWithSecret(webhookURL, secret string) *DingTalkSender {
 	return &DingTalkSender{
-		webhookURL: webhookURL,
+		webhookURL: strings.TrimSpace(webhookURL),
+		secret:     strings.TrimSpace(secret),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -46,7 +60,11 @@ func (s *DingTalkSender) Send(ctx context.Context, msg Message) error {
 		return fmt.Errorf("dingtalk: marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewReader(body))
+	endpoint, err := s.signedEndpoint()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("dingtalk: create request: %w", err)
 	}
@@ -72,6 +90,24 @@ func (s *DingTalkSender) Send(ctx context.Context, msg Message) error {
 	}
 
 	return nil
+}
+
+func (s *DingTalkSender) signedEndpoint() (string, error) {
+	if s.secret == "" {
+		return s.webhookURL, nil
+	}
+	u, err := url.Parse(s.webhookURL)
+	if err != nil {
+		return "", fmt.Errorf("dingtalk: parse webhook_url: %w", err)
+	}
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	mac := hmac.New(sha256.New, []byte(s.secret))
+	_, _ = mac.Write([]byte(timestamp + "\n" + s.secret))
+	query := u.Query()
+	query.Set("timestamp", timestamp)
+	query.Set("sign", base64.URLEncoding.EncodeToString(mac.Sum(nil)))
+	u.RawQuery = query.Encode()
+	return u.String(), nil
 }
 
 // buildMarkdown constructs the markdown title and content for a DingTalk message.

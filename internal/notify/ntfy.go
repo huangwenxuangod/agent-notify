@@ -17,16 +17,23 @@ const (
 
 // NtfySender sends notifications through a ntfy.sh (or self-hosted ntfy) topic.
 type NtfySender struct {
-	topicURL   string
-	httpClient *http.Client
+	topicURL    string
+	accessToken string
+	httpClient  *http.Client
 }
 
 // NewNtfySender creates a NtfySender with the provided ntfy topic URL.
 // The URL should be in the format https://ntfy.sh/<topic> or a self-hosted ntfy server URL.
 func NewNtfySender(topicURL string) *NtfySender {
+	return NewNtfySenderWithAccessToken(topicURL, "")
+}
+
+// NewNtfySenderWithAccessToken creates a ntfy sender with optional bearer auth.
+func NewNtfySenderWithAccessToken(topicURL, accessToken string) *NtfySender {
 	return &NtfySender{
-		topicURL:   strings.TrimSpace(topicURL),
-		httpClient: &http.Client{Timeout: ntfyHTTPTimeout},
+		topicURL:    strings.TrimSpace(topicURL),
+		accessToken: strings.TrimSpace(accessToken),
+		httpClient:  &http.Client{Timeout: ntfyHTTPTimeout},
 	}
 }
 
@@ -46,6 +53,9 @@ func (s *NtfySender) Send(ctx context.Context, msg Message) error {
 	}
 	req.Header.Set("Title", title)
 	req.Header.Set("Tags", ntfyTagsForEvent(msg.Event))
+	if s.accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.accessToken)
+	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

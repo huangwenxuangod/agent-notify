@@ -1,0 +1,62 @@
+{
+  "name": "agent-notify",
+  "version": "0.14.3",
+  "description": "Get notified the moment your AI coding agent needs you — Claude Code, Codex, ZCode & Grok → phone & desktop (Feishu, WeCom, DingTalk, Bark, ntfy, Slack).",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "zcode",
+    "grok",
+    "ai-agent",
+    "agent",
+    "notifications",
+    "desktop-notification",
+    "hooks",
+    "cli",
+    "feishu",
+    "lark",
+    "bark",
+    "ntfy",
+    "slack",
+    "dingtalk",
+    "wecom"
+  ],
+  "homepage": "https://github.com/hellolib/agent-notify#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hellolib/agent-notify.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hellolib/agent-notify/issues"
+  },
+  "author": "hellolib",
+  "license": "MIT",
+  "bin": {
+    "agent-notify": "./src/cli.ts"
+  },
+  "type": "module",
+  "files": [
+    "src",
+    "scripts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test ./test",
+    "typecheck": "tsc --noEmit",
+    "prepack": "bun run typecheck && bun run ./scripts/sync-readme.ts"
+  },
+  "dependencies": {
+    "https-proxy-agent": "^9.1.0",
+    "proxy-from-env": "^2.1.0",
+    "tar": "^7.5.22"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^24.0.0",
+    "@types/proxy-from-env": "^1.0.4",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  }
+}

@@ -12,11 +12,12 @@ import (
 
 // Config is the root configuration structure for agent-notify.
 type Config struct {
-	Version      int            `yaml:"version"`                 // 配置版本号
-	Agent        AgentConfig    `yaml:"agent"`                   // Agent 安装配置
-	Notify       NotifyConfig   `yaml:"notify"`                  // 通知配置
-	Behavior     BehaviorConfig `yaml:"behavior"`                // 行为配置
-	StarPrompted bool           `yaml:"star_prompted,omitempty"` // 是否已展示过一次性 GitHub star 引导
+	Version      int                  `yaml:"version"`                 // 配置版本号
+	Agent        AgentConfig          `yaml:"agent"`                   // Agent 安装配置
+	Notify       NotifyConfig         `yaml:"notify"`                  // 通知配置
+	Remote       RemoteDeliveryConfig `yaml:"remote"`                  // Docker 侧共享远程通知配置
+	Behavior     BehaviorConfig       `yaml:"behavior"`                // 行为配置
+	StarPrompted bool                 `yaml:"star_prompted,omitempty"` // 是否已展示过一次性 GitHub star 引导
 }
 
 // AgentConfig holds configuration for supported agents.
@@ -96,6 +97,24 @@ type ChannelsConfig struct {
 	Slack      SlackChannelConfig      `yaml:"slack"`       // Slack 通知配置
 }
 
+// RemoteDeliveryConfig is shared by every Agent. System notifications remain
+// host-local because containers cannot access the host notification center.
+type RemoteDeliveryConfig struct {
+	Feishu     FeishuWebhookConfig     `yaml:"feishu"`
+	Wechat     WechatChannelConfig     `yaml:"wechat"`
+	WechatWork WechatWorkChannelConfig `yaml:"wechat_work"`
+	DingTalk   DingTalkChannelConfig   `yaml:"dingtalk"`
+	Bark       BarkChannelConfig       `yaml:"bark"`
+	Ntfy       NtfyChannelConfig       `yaml:"ntfy"`
+	Slack      SlackChannelConfig      `yaml:"slack"`
+}
+
+type FeishuWebhookConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	WebhookURL    string `yaml:"webhook_url"`
+	SigningSecret string `yaml:"signing_secret,omitempty"`
+}
+
 // ChannelConfig holds configuration for a single notification channel.
 type ChannelConfig struct {
 	Enabled bool `yaml:"enabled"` // 是否启用该通知渠道
@@ -147,8 +166,9 @@ type WechatWorkChannelConfig struct {
 
 // DingTalkChannelConfig holds configuration for DingTalk (钉钉) webhook notifications.
 type DingTalkChannelConfig struct {
-	Enabled    bool   `yaml:"enabled"`     // 是否启用钉钉通知
-	WebhookURL string `yaml:"webhook_url"` // 群机器人 Webhook URL
+	Enabled       bool   `yaml:"enabled"`                  // 是否启用钉钉通知
+	WebhookURL    string `yaml:"webhook_url"`              // 群机器人 Webhook URL
+	SigningSecret string `yaml:"signing_secret,omitempty"` // 机器人加签密钥
 }
 
 // BarkChannelConfig holds configuration for Bark webhook notifications.
@@ -159,8 +179,9 @@ type BarkChannelConfig struct {
 
 // NtfyChannelConfig holds configuration for ntfy.sh topic notifications.
 type NtfyChannelConfig struct {
-	Enabled  bool   `yaml:"enabled"`   // 是否启用 Ntfy 通知
-	TopicURL string `yaml:"topic_url"` // Ntfy topic URL, e.g. https://ntfy.sh/mytopic
+	Enabled     bool   `yaml:"enabled"`                // 是否启用 Ntfy 通知
+	TopicURL    string `yaml:"topic_url"`              // Ntfy topic URL, e.g. https://ntfy.sh/mytopic
+	AccessToken string `yaml:"access_token,omitempty"` // 可选 Bearer token
 }
 
 // SlackChannelConfig holds configuration for Slack Incoming Webhook notifications.
@@ -223,7 +244,7 @@ func Default() Config {
 	}
 
 	return Config{
-		Version: 1,
+		Version: 3,
 		Agent: AgentConfig{
 			ClaudeCode: AgentTargetConfig{
 				Enabled:      false,
@@ -281,6 +302,17 @@ func Default() Config {
 			WorkBuddy: AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
 			Hermes:    AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
 			OpenClaw:  AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
+		},
+		// A channel is ready to configure from the first launch. Delivery still
+		// requires a non-empty endpoint, so these defaults never emit a message.
+		Remote: RemoteDeliveryConfig{
+			Feishu:     FeishuWebhookConfig{Enabled: true},
+			Wechat:     WechatChannelConfig{Enabled: true},
+			WechatWork: WechatWorkChannelConfig{Enabled: true},
+			DingTalk:   DingTalkChannelConfig{Enabled: true},
+			Bark:       BarkChannelConfig{Enabled: true},
+			Ntfy:       NtfyChannelConfig{Enabled: true},
+			Slack:      SlackChannelConfig{Enabled: true},
 		},
 		Behavior: BehaviorConfig{
 			DedupeSeconds:      10,
@@ -391,8 +423,66 @@ func Load(path string) (Config, error) {
 	cfg.Notify.WorkBuddy.Events = ensureEvents(cfg.Notify.WorkBuddy, def.Notify.WorkBuddy.Events)
 	cfg.Notify.Hermes.Events = ensureEvents(cfg.Notify.Hermes, def.Notify.Hermes.Events)
 	cfg.Notify.OpenClaw.Events = ensureEvents(cfg.Notify.OpenClaw, def.Notify.OpenClaw.Events)
+	if cfg.Version < 2 {
+		migrateRemoteDelivery(&cfg)
+		cfg.Version = 2
+	}
+	// Version 3 adds optional custom-bot signing and ntfy bearer credentials.
+	// Existing version 2 values are already structurally compatible, so only the
+	// version marker changes; no URL or enabled state is rewritten.
+	if cfg.Version < 3 {
+		cfg.Version = 3
+	}
 
 	return cfg, nil
+}
+
+// migrateRemoteDelivery promotes the first existing remote channel setup into
+// the shared Docker delivery config. Old per-Agent values are retained for
+// backwards compatibility and host fallback.
+func migrateRemoteDelivery(cfg *Config) bool {
+	if anyRemoteChannelEnabled(cfg.Remote) {
+		return false
+	}
+	for _, notifyCfg := range []AgentNotifyConfig{
+		cfg.Notify.Codex,
+		cfg.Notify.ClaudeCode,
+		cfg.Notify.WorkBuddy,
+		cfg.Notify.Hermes,
+		cfg.Notify.OpenClaw,
+		cfg.Notify.ZCode,
+		cfg.Notify.Grok,
+		cfg.Notify.Droid,
+		cfg.Notify.OpenCode,
+	} {
+		remote := remoteDeliveryFromChannels(notifyCfg.Channels)
+		if anyRemoteChannelEnabled(remote) {
+			cfg.Remote = remote
+			return true
+		}
+	}
+	return false
+}
+
+func remoteDeliveryFromChannels(channels ChannelsConfig) RemoteDeliveryConfig {
+	return RemoteDeliveryConfig{
+		Feishu: FeishuWebhookConfig{Enabled: channels.Feishu.Enabled}, Wechat: channels.Wechat, WechatWork: channels.WechatWork,
+		DingTalk: channels.DingTalk, Bark: channels.Bark, Ntfy: channels.Ntfy, Slack: channels.Slack,
+	}
+}
+
+func anyRemoteChannelEnabled(c RemoteDeliveryConfig) bool {
+	return remoteEndpointConfigured(c.Feishu.Enabled, c.Feishu.WebhookURL) ||
+		remoteEndpointConfigured(c.Wechat.Enabled, c.Wechat.WebhookURL) ||
+		remoteEndpointConfigured(c.WechatWork.Enabled, c.WechatWork.WebhookURL) ||
+		remoteEndpointConfigured(c.DingTalk.Enabled, c.DingTalk.WebhookURL) ||
+		remoteEndpointConfigured(c.Bark.Enabled, c.Bark.WebhookURL) ||
+		remoteEndpointConfigured(c.Ntfy.Enabled, c.Ntfy.TopicURL) ||
+		remoteEndpointConfigured(c.Slack.Enabled, c.Slack.WebhookURL)
+}
+
+func remoteEndpointConfigured(enabled bool, endpoint string) bool {
+	return enabled && strings.TrimSpace(endpoint) != ""
 }
 
 // ensureEvents keeps existing events. When channels are enabled but events were never

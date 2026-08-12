@@ -1,0 +1,14 @@
+/* Make the whole custom header a reliable Wails drag target. */
+.topbar { --wails-draggable: drag; height: 88px; padding: 28px 28px 0; box-shadow: none; }
+.topbar button { --wails-draggable: no-drag; }
+.wordmark { color: var(--blue); cursor: default; white-space: nowrap; }
+.primary-nav { margin-left: 0; }
+.workspace { padding: 18px 0 0; }
+.page-intro { margin-bottom: 18px; }
+.provider-picker { margin-bottom: 14px; }
+.configuration-panel { padding: 24px; }
+.field-wrap { margin-top: 20px; }
+.panel-actions { margin-top: 16px; }
+
+/* A delivery switch pauses sending; it never prevents changing credentials. */
+.configuration-panel .field-wrap.disabled { opacity: 1; }

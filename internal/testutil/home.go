@@ -27,6 +27,9 @@ func IsolateHome(t *testing.T) string {
 	return dir
 }
 
+func WithHome(t *testing.T) func() { t.Helper(); IsolateHome(t); return func() {} }
+func Home(t *testing.T) string     { t.Helper(); home, _ := os.UserHomeDir(); return home }
+
 // FakeAgentsOnPath 伪造全部四个 agent 的安装痕迹,使 DetectInstalled 在无
 // 真实 agent 的环境(CI runner)中也返回 true:
 //   - claude / codex / grok:PATH 上的可执行占位文件(exec.LookPath 探测);

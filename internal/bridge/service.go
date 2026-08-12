@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"context"
 	"github.com/hellolib/agent-notify/internal/agenthooks"
@@ -16,14 +17,17 @@ import (
 )
 
 type Options struct {
-	ConfigPath string
-	StatePath  string
-	LogPath    string
-	BinaryPath string
+	ConfigPath    string
+	StatePath     string
+	LogPath       string
+	BinaryPath    string
+	AutostartPath string
+	RemoteOnly    bool
 }
 
 type Service struct {
-	options Options
+	options    Options
+	remoteOnly bool
 }
 
 type AgentStatus struct {
@@ -86,7 +90,10 @@ func NewService(options Options) (*Service, error) {
 	if options.BinaryPath == "" {
 		options.BinaryPath = os.Args[0]
 	}
-	return &Service{options: options}, nil
+	if options.AutostartPath == "" {
+		options.AutostartPath = options.BinaryPath
+	}
+	return &Service{options: options, remoteOnly: options.RemoteOnly}, nil
 }
 
 type agentSpec struct {
@@ -117,7 +124,26 @@ func (s *Service) IngestMessage(ctx context.Context, msg notify.Message) error {
 	if err != nil {
 		return err
 	}
+	if s.remoteOnly {
+		return agenthooks.DispatchRemote(ctx, cfg, s.options.StatePath, s.options.LogPath, msg)
+	}
 	return agenthooks.Dispatch(ctx, cfg, s.options.StatePath, s.options.LogPath, msg)
+}
+
+// RecordEvent persists a host-side dispatch outcome without sending it again.
+func (s *Service) RecordEvent(msg notify.Message, result string) error {
+	if result == "" {
+		result = "sent"
+	}
+	sourceApp := msg.SourceApp.BundleID
+	if sourceApp == "" {
+		sourceApp = msg.SourceApp.TermProgram
+	}
+	return state.NewEventJournal(state.EventJournalPath(s.options.StatePath), 5<<20).Append(state.EventRecord{
+		Timestamp: time.Now().UTC(), Agent: msg.Agent, Event: msg.Event,
+		SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title,
+		Body: msg.Body, SourceApp: sourceApp, Result: result,
+	})
 }
 
 func (s *Service) ScanAgents() ([]AgentStatus, error) {
@@ -266,18 +292,134 @@ func (s *Service) ListLogs(limit int) ([]string, error) {
 	return lines, nil
 }
 
+func (s *Service) FreezeStatus() state.FreezeState {
+	return state.NewFreezeStore(state.FreezePath(s.options.StatePath)).Load()
+}
+
+func (s *Service) FreezeRemoteChannels(duration time.Duration) (state.FreezeState, error) {
+	if duration <= 0 {
+		return state.FreezeState{}, fmt.Errorf("freeze duration must be positive")
+	}
+	cfg, err := s.GetConfig()
+	if err != nil {
+		return state.FreezeState{}, err
+	}
+	channels := configuredRemoteChannels(cfg)
+	if len(channels) == 0 {
+		return state.FreezeState{}, fmt.Errorf("no configured remote notification channels")
+	}
+	now := time.Now()
+	store := state.NewFreezeStore(state.FreezePath(s.options.StatePath))
+	if err := store.Set(now.Add(duration), channels, now); err != nil {
+		return state.FreezeState{}, err
+	}
+	return store.Load(), nil
+}
+
+func (s *Service) ClearFreeze() error {
+	return state.NewFreezeStore(state.FreezePath(s.options.StatePath)).Clear()
+}
+
+func configuredRemoteChannels(cfg config.Config) []string {
+	remote := cfg.Remote
+	seen := map[string]bool{
+		"feishu":      configuredWebhook(remote.Feishu.Enabled, remote.Feishu.WebhookURL),
+		"wechat":      configuredWebhook(remote.Wechat.Enabled, remote.Wechat.WebhookURL),
+		"wechat-work": configuredWebhook(remote.WechatWork.Enabled, remote.WechatWork.WebhookURL),
+		"dingtalk":    configuredWebhook(remote.DingTalk.Enabled, remote.DingTalk.WebhookURL),
+		"bark":        configuredWebhook(remote.Bark.Enabled, remote.Bark.WebhookURL),
+		"ntfy":        configuredWebhook(remote.Ntfy.Enabled, remote.Ntfy.TopicURL),
+		"slack":       configuredWebhook(remote.Slack.Enabled, remote.Slack.WebhookURL),
+	}
+	channels := make([]string, 0, len(seen))
+	for _, name := range state.RemoteFreezeChannels {
+		if seen[name] {
+			channels = append(channels, name)
+		}
+	}
+	return channels
+}
+
 func (s *Service) TestNotification() error {
 	return fmt.Errorf("notification test requires an enabled system channel")
 }
+
+// TestRemoteChannel sends one test event through exactly one configured remote
+// channel. It never persists the temporary single-channel config.
+func (s *Service) TestRemoteChannel(ctx context.Context, channel string) error {
+	cfg, err := s.GetConfig()
+	if err != nil {
+		return err
+	}
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	testCfg := cfg
+	testCfg.Remote = config.RemoteDeliveryConfig{}
+	switch channel {
+	case "feishu":
+		testCfg.Remote.Feishu = cfg.Remote.Feishu
+		if !configuredFeishu(testCfg.Remote.Feishu) {
+			return fmt.Errorf("feishu channel is not configured")
+		}
+	case "wechat":
+		testCfg.Remote.Wechat = cfg.Remote.Wechat
+		if !configuredWebhook(testCfg.Remote.Wechat.Enabled, testCfg.Remote.Wechat.WebhookURL) {
+			return fmt.Errorf("custom webhook channel is not configured")
+		}
+	case "wechat-work":
+		testCfg.Remote.WechatWork = cfg.Remote.WechatWork
+		if !configuredWebhook(testCfg.Remote.WechatWork.Enabled, testCfg.Remote.WechatWork.WebhookURL) {
+			return fmt.Errorf("wechat work channel is not configured")
+		}
+	case "dingtalk":
+		testCfg.Remote.DingTalk = cfg.Remote.DingTalk
+		if !configuredWebhook(testCfg.Remote.DingTalk.Enabled, testCfg.Remote.DingTalk.WebhookURL) {
+			return fmt.Errorf("dingtalk channel is not configured")
+		}
+	case "bark":
+		testCfg.Remote.Bark = cfg.Remote.Bark
+		if !configuredWebhook(testCfg.Remote.Bark.Enabled, testCfg.Remote.Bark.WebhookURL) {
+			return fmt.Errorf("bark channel is not configured")
+		}
+	case "ntfy":
+		testCfg.Remote.Ntfy = cfg.Remote.Ntfy
+		if !configuredWebhook(testCfg.Remote.Ntfy.Enabled, testCfg.Remote.Ntfy.TopicURL) {
+			return fmt.Errorf("ntfy channel is not configured")
+		}
+	case "slack":
+		testCfg.Remote.Slack = cfg.Remote.Slack
+		if !configuredWebhook(testCfg.Remote.Slack.Enabled, testCfg.Remote.Slack.WebhookURL) {
+			return fmt.Errorf("slack channel is not configured")
+		}
+	default:
+		return fmt.Errorf("unsupported remote channel %q", channel)
+	}
+
+	// A channel connection test must not depend on which agents are currently
+	// installed or have selected event types.
+	testCfg.Notify.Codex.Events = []string{"run_completed"}
+	message := notify.Message{
+		Agent: "codex", Event: "run_completed", Title: "Agent Notify 测试通知",
+		Body: "机器人通知渠道已连接", SessionID: fmt.Sprintf("channel-test-%d", time.Now().UnixNano()),
+	}
+	return agenthooks.DispatchRemote(ctx, testCfg, s.options.StatePath, s.options.LogPath, message)
+}
+
+func configuredFeishu(c config.FeishuWebhookConfig) bool {
+	return configuredWebhook(c.Enabled, c.WebhookURL)
+}
+
+func configuredWebhook(enabled bool, endpoint string) bool {
+	return enabled && strings.TrimSpace(endpoint) != ""
+}
 func (s *Service) AutostartStatus() AutostartStatus {
-	st, err := autostart.New(s.options.BinaryPath).Status()
+	st, err := autostart.New(s.options.AutostartPath).Status()
 	if err != nil {
 		return AutostartStatus{Error: err.Error()}
 	}
 	return AutostartStatus{Supported: st.Supported, Enabled: st.Enabled, Platform: st.Platform, Path: st.Path}
 }
 func (s *Service) SetAutostart(enabled bool) error {
-	m := autostart.New(s.options.BinaryPath)
+	m := autostart.New(s.options.AutostartPath)
 	if enabled {
 		return m.Enable()
 	}

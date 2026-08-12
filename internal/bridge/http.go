@@ -3,6 +3,7 @@ package bridge
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/notify"
@@ -91,6 +92,14 @@ func NewHTTPHandler(service *Service, token []byte) http.Handler {
 				jsonWrite(w, http.StatusBadRequest, map[string]string{"error": "agent and event are required"})
 				return
 			}
+			if r.Header.Get("X-Agent-Notify-Journal-Only") == "true" {
+				if err := service.RecordEvent(msg, r.Header.Get("X-Agent-Notify-Result")); err != nil {
+					jsonWrite(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+					return
+				}
+				jsonWrite(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+				return
+			}
 			if err := service.IngestMessage(r.Context(), msg); err != nil {
 				jsonWrite(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 				return
@@ -123,6 +132,66 @@ func NewHTTPHandler(service *Service, token []byte) http.Handler {
 			return
 		}
 		jsonWrite(w, 200, value)
+	})
+	mux.HandleFunc("/api/test-channel", func(w http.ResponseWriter, r *http.Request) {
+		if !withAuth(w, r) {
+			return
+		}
+		if service == nil {
+			jsonWrite(w, 500, map[string]string{"error": "bridge unavailable"})
+			return
+		}
+		if r.Method != http.MethodPost {
+			jsonWrite(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		var req struct {
+			Channel string `json:"channel"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil {
+			jsonWrite(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+		if err := service.TestRemoteChannel(r.Context(), req.Channel); err != nil {
+			jsonWrite(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		jsonWrite(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+	})
+	mux.HandleFunc("/api/freeze", func(w http.ResponseWriter, r *http.Request) {
+		if !withAuth(w, r) {
+			return
+		}
+		if service == nil {
+			jsonWrite(w, 500, map[string]string{"error": "bridge unavailable"})
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			jsonWrite(w, 200, service.FreezeStatus())
+		case http.MethodDelete:
+			if err := service.ClearFreeze(); err != nil {
+				jsonWrite(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			jsonWrite(w, 200, service.FreezeStatus())
+		case http.MethodPut:
+			var req struct {
+				DurationSeconds int `json:"duration_seconds"`
+			}
+			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil {
+				jsonWrite(w, 400, map[string]string{"error": "invalid json"})
+				return
+			}
+			value, err := service.FreezeRemoteChannels(time.Duration(req.DurationSeconds) * time.Second)
+			if err != nil {
+				jsonWrite(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			jsonWrite(w, 200, value)
+		default:
+			jsonWrite(w, 405, map[string]string{"error": "method not allowed"})
+		}
 	})
 	mux.HandleFunc("/api/setup/scan", func(w http.ResponseWriter, r *http.Request) {
 		if !withAuth(w, r) {

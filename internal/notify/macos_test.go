@@ -67,6 +67,42 @@ func TestMacOSSenderSendUsesTerminalNotifier(t *testing.T) {
 	}
 }
 
+func TestMacOSSenderPrefersAppleScriptOverLegacyTerminalNotifier(t *testing.T) {
+	var calls []struct {
+		name string
+		args []string
+	}
+
+	sender := NewMacOSSenderWithResolver(func(_ context.Context, name string, args ...string) error {
+		calls = append(calls, struct {
+			name string
+			args []string
+		}{name, args})
+		return nil
+	}, true, "app", mockResolver)
+	sender.useLegacyTerminalNotifier = false
+
+	if err := sender.Send(context.Background(), Message{Title: "Title", Body: "Body"}); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if len(calls) != 1 || calls[0].name != "osascript" {
+		t.Fatalf("calls = %#v, want exactly one osascript call", calls)
+	}
+	if len(calls[0].args) != 2 || calls[0].args[0] != "-e" {
+		t.Fatalf("args = %#v, want osascript script args", calls[0].args)
+	}
+}
+
+func TestRegisteredTerminalNotifierEnablesClickCallbacks(t *testing.T) {
+	registered := "/Users/tester/Applications/Agent Notify Notifier.app/Contents/MacOS/terminal-notifier"
+	if !registeredTerminalNotifierPath(registered) {
+		t.Fatal("registeredTerminalNotifierPath() = false, want true for user Applications bundle")
+	}
+	if registeredTerminalNotifierPath("/Users/tester/.agent-notify/terminal-notifier.app/Contents/MacOS/terminal-notifier") {
+		t.Fatal("registeredTerminalNotifierPath() = true for hidden support bundle")
+	}
+}
+
 func TestMacOSSenderTerminalNotifierExecutesOpenBundle(t *testing.T) {
 	newSenderArgs := func(msg Message, clickToFocus bool) []string {
 		var gotArgs []string

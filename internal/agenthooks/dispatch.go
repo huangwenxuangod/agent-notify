@@ -15,20 +15,28 @@ import (
 )
 
 func Dispatch(ctx context.Context, cfg config.Config, statePath, logPath string, msg notify.Message) error {
+	return dispatch(ctx, cfg, statePath, logPath, msg, true)
+}
+
+// DispatchRemote is used by the Docker control plane. It deliberately excludes
+// system notifications because those must run in the host desktop session.
+func DispatchRemote(ctx context.Context, cfg config.Config, statePath, logPath string, msg notify.Message) error {
+	return dispatch(ctx, cfg, statePath, logPath, msg, false)
+}
+
+func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string, msg notify.Message, host bool) error {
 	// hook 进程由终端 / IDE 启动，此处能从继承的环境变量识别宿主应用
-	msg.SourceApp = notify.DetectSourceApp()
+	if host {
+		msg.SourceApp = notify.DetectSourceApp()
+	}
 	// Windows 上 hook stdin 偶发把路径中的中文变成 '?'；用 env / Getwd 纠正
 	msg.Workspace = notify.ResolveWorkspace(msg.Workspace)
-	if sent, err := bridgeclient.TryDispatch(ctx, msg); sent {
-		return nil
-	} else if err != nil {
-		_ = state.AppendLog(logPath, fmt.Sprintf("bridge dispatch fallback: %v", err))
-	}
-
 	// session_start 是纯副作用事件：仅在 Linux / macOS / Windows 捕获点击聚焦的目标窗口并缓存，
 	// 永不产生通知，也不受任何 agent 的事件配置控制。其它平台直接返回。
 	if msg.Event == "session_start" {
-		captureFocusWindow(ctx, statePath, logPath, msg)
+		if host {
+			captureFocusWindow(ctx, statePath, logPath, msg)
+		}
 		return nil
 	}
 
@@ -41,9 +49,21 @@ func Dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 	}
 
 	store := state.NewStore(statePath)
-	senders := buildSenders(cfg, msg)
+	timeout := time.Duration(cfg.Behavior.SendTimeoutSeconds) * time.Second
+	if host {
+		if sender := buildSystemSender(cfg, msg); sender != nil {
+			sendCtx, cancel := context.WithTimeout(ctx, systemSendTimeout(timeout))
+			if err := notify.NewDispatcher(store, time.Duration(cfg.Behavior.DedupeSeconds)*time.Second, sender).SendAll(sendCtx, msg); err != nil {
+				_ = state.AppendLog(logPath, fmt.Sprintf("system dispatch error event=%s err=%v", msg.Event, err))
+			}
+			cancel()
+		}
+	}
+
+	senders := buildRemoteSenders(cfg, msg)
 	if len(senders) == 0 {
 		appendEventRecord(statePath, logPath, msg, "no_sender")
+		recordBridgeEvent(ctx, host, logPath, msg, "no_sender")
 		return state.AppendLog(logPath, fmt.Sprintf("no sender enabled for event=%s", msg.Event))
 	}
 
@@ -51,21 +71,50 @@ func Dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 	senders = filterFrozenSenders(statePath, logPath, msg.Event, senders, time.Now())
 	if len(senders) == 0 {
 		appendEventRecord(statePath, logPath, msg, "frozen")
+		recordBridgeEvent(ctx, host, logPath, msg, "frozen")
 		return state.AppendLog(logPath, fmt.Sprintf("all senders frozen for event=%s", msg.Event))
 	}
 
 	dispatcher := notify.NewDispatcher(store, time.Duration(cfg.Behavior.DedupeSeconds)*time.Second, senders...)
-	timeout := time.Duration(cfg.Behavior.SendTimeoutSeconds) * time.Second
 	sendCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	if err := dispatcher.SendAll(sendCtx, msg); err != nil {
-		appendEventRecord(statePath, logPath, msg, "error")
+		result := deliveryResult(err)
+		appendEventRecord(statePath, logPath, msg, result)
+		recordBridgeEvent(ctx, host, logPath, msg, result)
 		return state.AppendLog(logPath, fmt.Sprintf("dispatch error event=%s session=%s err=%v", msg.Event, msg.SessionID, err))
 	}
 	appendEventRecord(statePath, logPath, msg, "sent")
+	recordBridgeEvent(ctx, host, logPath, msg, "sent")
 
 	return nil
+}
+
+func deliveryResult(err error) string {
+	if notify.HasSuccessfulDelivery(err) {
+		return "partial"
+	}
+	return "error"
+}
+
+func recordBridgeEvent(ctx context.Context, host bool, logPath string, msg notify.Message, result string) {
+	if !host {
+		return
+	}
+	if _, err := bridgeclient.RecordEvent(ctx, "", "", msg, result); err != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("bridge event record failed: %v", err))
+	}
+}
+
+// systemSendTimeout keeps native macOS notification helpers enough time to
+// launch. Remote delivery continues to honor Behavior.SendTimeoutSeconds.
+func systemSendTimeout(timeout time.Duration) time.Duration {
+	const minimum = 15 * time.Second
+	if timeout < minimum {
+		return minimum
+	}
+	return timeout
 }
 
 func appendEventRecord(statePath, logPath string, msg notify.Message, result string) {
@@ -149,7 +198,7 @@ func filterFrozenSenders(statePath, logPath, event string, senders []notify.Send
 	return filtered
 }
 
-func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
+func buildRemoteSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 	var senders []notify.Sender
 
 	notifyCfg := cfg.Notify.ClaudeCode
@@ -176,37 +225,96 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 		return senders
 	}
 
-	if notifyCfg.Channels.System.Enabled {
-		senders = append(senders, notify.NewSystemSender(
-			notify.DefaultRunner,
-			notifyCfg.Channels.System.ClickToFocus,
-			config.FocusPrecisionFromEnv(),
-			notifyCfg.Channels.System.EffectiveFocusDebug(),
-		))
+	remote := cfg.Remote
+	if remote.Feishu.Enabled && remote.Feishu.WebhookURL != "" {
+		senders = append(senders, notify.NewFeishuWebhookSenderWithSecret(remote.Feishu.WebhookURL, remote.Feishu.SigningSecret))
 	}
-	if notifyCfg.Channels.Feishu.Enabled {
-		senders = append(senders, notify.NewDefaultFeishuSender())
+	if remote.Wechat.Enabled && remote.Wechat.WebhookURL != "" {
+		senders = append(senders, notify.NewWechatSender(remote.Wechat.WebhookURL))
 	}
-	if notifyCfg.Channels.Wechat.Enabled && notifyCfg.Channels.Wechat.WebhookURL != "" {
-		senders = append(senders, notify.NewWechatSender(notifyCfg.Channels.Wechat.WebhookURL))
+	if remote.WechatWork.Enabled && remote.WechatWork.WebhookURL != "" {
+		senders = append(senders, notify.NewWechatWorkSender(remote.WechatWork.WebhookURL))
 	}
-	if notifyCfg.Channels.WechatWork.Enabled && notifyCfg.Channels.WechatWork.WebhookURL != "" {
-		senders = append(senders, notify.NewWechatWorkSender(notifyCfg.Channels.WechatWork.WebhookURL))
+	if remote.DingTalk.Enabled && remote.DingTalk.WebhookURL != "" {
+		senders = append(senders, notify.NewDingTalkSenderWithSecret(remote.DingTalk.WebhookURL, remote.DingTalk.SigningSecret))
 	}
-	if notifyCfg.Channels.DingTalk.Enabled && notifyCfg.Channels.DingTalk.WebhookURL != "" {
-		senders = append(senders, notify.NewDingTalkSender(notifyCfg.Channels.DingTalk.WebhookURL))
+	if remote.Bark.Enabled && remote.Bark.WebhookURL != "" {
+		senders = append(senders, notify.NewBarkSender(remote.Bark.WebhookURL))
 	}
-	if notifyCfg.Channels.Bark.Enabled && notifyCfg.Channels.Bark.WebhookURL != "" {
-		senders = append(senders, notify.NewBarkSender(notifyCfg.Channels.Bark.WebhookURL))
+	if remote.Ntfy.Enabled && remote.Ntfy.TopicURL != "" {
+		senders = append(senders, notify.NewNtfySenderWithAccessToken(remote.Ntfy.TopicURL, remote.Ntfy.AccessToken))
 	}
-	if notifyCfg.Channels.Ntfy.Enabled && notifyCfg.Channels.Ntfy.TopicURL != "" {
-		senders = append(senders, notify.NewNtfySender(notifyCfg.Channels.Ntfy.TopicURL))
-	}
-	if notifyCfg.Channels.Slack.Enabled && notifyCfg.Channels.Slack.WebhookURL != "" {
-		senders = append(senders, notify.NewSlackSender(notifyCfg.Channels.Slack.WebhookURL))
+	if remote.Slack.Enabled && remote.Slack.WebhookURL != "" {
+		senders = append(senders, notify.NewSlackSender(remote.Slack.WebhookURL))
 	}
 
 	return senders
+}
+
+// buildSenders preserves the legacy per-Agent configuration shape for local
+// fallback callers and compatibility tests. Docker dispatch uses
+// buildRemoteSenders directly and therefore never includes system delivery.
+func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
+	legacy := cfg
+	notifyCfg := cfg.Notify.ClaudeCode
+	switch msg.Agent {
+	case "codex":
+		notifyCfg = cfg.Notify.Codex
+	case "zcode":
+		notifyCfg = cfg.Notify.ZCode
+	case "grok":
+		notifyCfg = cfg.Notify.Grok
+	case "droid":
+		notifyCfg = cfg.Notify.Droid
+	case "opencode":
+		notifyCfg = cfg.Notify.OpenCode
+	case "workbuddy":
+		notifyCfg = cfg.Notify.WorkBuddy
+	case "hermes":
+		notifyCfg = cfg.Notify.Hermes
+	case "openclaw":
+		notifyCfg = cfg.Notify.OpenClaw
+	}
+	legacyFeishuURL := ""
+	if notifyCfg.Channels.Feishu.Enabled {
+		legacyFeishuURL = "legacy://feishu"
+	}
+	legacy.Remote = config.RemoteDeliveryConfig{
+		Feishu: config.FeishuWebhookConfig{Enabled: notifyCfg.Channels.Feishu.Enabled, WebhookURL: legacyFeishuURL}, Wechat: notifyCfg.Channels.Wechat,
+		WechatWork: notifyCfg.Channels.WechatWork, DingTalk: notifyCfg.Channels.DingTalk,
+		Bark: notifyCfg.Channels.Bark, Ntfy: notifyCfg.Channels.Ntfy, Slack: notifyCfg.Channels.Slack,
+	}
+	senders := buildRemoteSenders(legacy, msg)
+	if system := buildSystemSender(cfg, msg); system != nil {
+		return append([]notify.Sender{system}, senders...)
+	}
+	return senders
+}
+
+func buildSystemSender(cfg config.Config, msg notify.Message) notify.Sender {
+	notifyCfg := cfg.Notify.ClaudeCode
+	switch msg.Agent {
+	case "codex":
+		notifyCfg = cfg.Notify.Codex
+	case "zcode":
+		notifyCfg = cfg.Notify.ZCode
+	case "grok":
+		notifyCfg = cfg.Notify.Grok
+	case "droid":
+		notifyCfg = cfg.Notify.Droid
+	case "opencode":
+		notifyCfg = cfg.Notify.OpenCode
+	case "workbuddy":
+		notifyCfg = cfg.Notify.WorkBuddy
+	case "hermes":
+		notifyCfg = cfg.Notify.Hermes
+	case "openclaw":
+		notifyCfg = cfg.Notify.OpenClaw
+	}
+	if !contains(notifyCfg.Events, msg.Event) || !notifyCfg.Channels.System.Enabled {
+		return nil
+	}
+	return notify.NewSystemSender(notify.DefaultRunner, notifyCfg.Channels.System.ClickToFocus, config.FocusPrecisionFromEnv(), notifyCfg.Channels.System.EffectiveFocusDebug())
 }
 
 func contains(items []string, want string) bool {

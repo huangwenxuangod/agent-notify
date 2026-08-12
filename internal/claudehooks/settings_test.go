@@ -312,7 +312,7 @@ func TestInstallRefreshesStaleBinaryPath(t *testing.T) {
 	if err := Install(path, "/old/build/agent-notify"); err != nil {
 		t.Fatalf("first install error = %v", err)
 	}
-	if err := Install(path, "/new/npx/agent-notify"); err != nil {
+	if err := Install(path, "/new/bun/agent-notify"); err != nil {
 		t.Fatalf("second install error = %v", err)
 	}
 
@@ -330,7 +330,7 @@ func TestInstallRefreshesStaleBinaryPath(t *testing.T) {
 					continue
 				}
 				total++
-				want := `"/new/npx/agent-notify" ` + hookCommandMarker
+				want := `"/new/bun/agent-notify" ` + hookCommandMarker
 				if cmd != want {
 					t.Fatalf("%s command = %q, want %q", event, cmd, want)
 				}
