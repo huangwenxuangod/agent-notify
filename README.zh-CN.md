@@ -16,7 +16,9 @@
 
 ## 项目简介
 
-一个面向 AI Agent 的通知配置工具。支持将 Claude Code、Codex、WorkBuddy、Hermes、OpenClaw、ZCode (Z.ai)、Grok、Droid、OpenCode 等 Agent 的事件通知推送到飞书、企业微信、钉钉、Bark、ntfy 和系统通知。
+Agent Notify 是运行在本机的 AI Agent 通知层。它会发现已安装的 Agent，写入官方 Hook 或插件接入，并在任务需要处理、完成或失败时发送系统通知和已配置的机器人消息。
+
+支持 **Claude Code、Codex、WorkBuddy / CodeBuddy、Hermes Agent、OpenClaw、ZCode、Grok、Droid、OpenCode**。通知渠道支持 **系统通知、飞书、微信、企业微信、钉钉、Bark、ntfy、Slack**。
 
 <p align="center">
   <img src="assist/demo.gif" alt="Agent Notify 演示" width="800">
@@ -28,17 +30,32 @@
 bunx agent-notify
 ```
 
+这会启动 CLI 配置向导，只接入你选择的 Agent 和通知渠道。Bun 启动器会把对应平台的 Go Hook Runtime 下载到 `~/.agent-notify/`，并始终通过绝对路径运行。
+
+## 工作方式
+
+```text
+Agent 事件
+  -> 本机 Hook / 插件
+  -> 系统通知 + 已配置机器人通道
+  -> Docker Bridge（桌面端事件历史，尽力写入）
+```
+
+本机 Hook 是通知数据面。Docker 或桌面端退出时，通知仍会直接发送；Docker 只是本机控制面，不是通知转发的单点依赖。
+
 ## 桌面端与 Docker
 
-Host Hook 是通知数据面：系统通知和已配置的远程通知都由本机 Hook 直接发送，即使 Docker 不可用也不受影响。Docker 只运行可选的 Bridge，用于桌面端状态、事件历史、通道测试和远程静默状态。
+macOS 桌面端是菜单栏常驻控制台：启动后会自动发现 Agent、接入缺失的用户级 Hook、为已连接 Agent 启用系统通知，并用于配置机器人通道、查看事件历史、测试推送和管理开机启动。
 
 ```bash
 ./deploy.sh up       # 启动 Bridge，端口为 127.0.0.1:45173
-./deploy.sh desktop  # 构建并隐藏启动 macOS 菜单栏应用
+./deploy.sh desktop  # 构建、更新并显示 Agent Notify.app
 ./deploy.sh status
 ```
 
-`~/.agent-notify/config.yaml` 是唯一配置源；桌面端会在 Bridge 在线时自动镜像过去。WorkBuddy 会在 `codebuddy --serve` 进程中缓存 Hook 配置，安装或更新 Hook 后需要重启 WorkBuddy。
+桌面端仅做本机 ad-hoc 签名，适合源码构建后的个人使用，未做面向公开分发的 macOS 公证。`~/.agent-notify/config.yaml` 是唯一配置源，桌面端会在 Bridge 在线时自动镜像过去。
+
+WorkBuddy 会在 `codebuddy --serve` 进程中缓存 Hook 配置，安装或更新后需要重启 WorkBuddy。
 
 
 ## 功能特性
@@ -55,14 +72,19 @@ Host Hook 是通知数据面：系统通知和已配置的远程通知都由本�
 | <img src="assist/logo/discord.png" width="24" align="absmiddle"> Discord | 通过 Discord 频道 Webhook 推送 | 🚧 Webhook |
 | <img src="assist/logo/telegram.png" width="24" align="absmiddle"> Telegram | 通过 Telegram Bot API 推送 | 🚧 Bot token |
 
-### 支持的事件
+### Agent 接入
 
-| 事件 | 说明 | Claude Code | Codex | ZCode | Grok | Droid | OpenCode |
-|------|------|:---:|:---:|:---:|:----:|:---:|:---:|
-| `permission_required` | Agent 需要授权（如执行命令） | ✅ | ✅ | ✅ |  ✅  | ✅ | ✅ |
-| `input_required` | Agent 等待用户输入 | ✅ | — | — |  ✅  | ✅ | ✅ |
-| `run_completed` | 任务执行完成 | ✅ | ✅ | ✅ |  ✅  | ✅ | ✅ |
-| `run_failed` | 任务执行失败 | ✅ | — | ✅ |  ✅  | — | ✅ |
+| Agent | 接入方式 | 事件能力 |
+|------|------|------|
+| Claude Code | 原生 Hook | 授权、等待输入、完成、失败 |
+| Codex | 官方 Hook | 授权、完成；需在 Codex 内运行 `/hooks` trust |
+| WorkBuddy / CodeBuddy | 兼容 CodeBuddy Hook | 授权、等待输入、完成、失败；改动后重启 |
+| Hermes Agent | Gateway Hook 目录 | 开始、完成、失败、授权 |
+| OpenClaw | ESM 扩展 | 完成、失败、授权；需在 OpenClaw 中启用扩展 |
+| ZCode | 原生 Hook | 授权、完成、失败 |
+| Grok | 原生 Hook | 授权/输入分类、完成、失败 |
+| Droid | 原生 Hook | 授权/输入分类、完成 |
+| OpenCode | JavaScript 插件 | 授权、等待输入、完成、失败 |
 
 说明：
 
@@ -72,15 +94,18 @@ Host Hook 是通知数据面：系统通知和已配置的远程通知都由本�
 - Grok 通过 `~/.grok/hooks/agent-notify.json` 订阅 `SessionStart`、`Notification`、`Stop`、`StopFailure`、`PostToolUseFailure`。Grok 没有独立的 `PermissionRequest` 事件，带 permission/approval 语义的 `Notification` 会映射为 `permission_required`（表中 *）；其它通知映射为 `input_required`。`StopFailure` / `PostToolUseFailure` 映射为 `run_failed`。
 - Droid 通过 `~/.factory/hooks.json` 订阅 `SessionStart`、`Notification`、`Stop`，映射为 `session_start` / `permission_required`|`input_required` / `run_completed`。Droid 无失败事件，故不支持 `run_failed`。`session_start` 仅用于点击聚焦的窗口捕获，不作为通知事件。
 - OpenCode 使用 JS 插件而非原生 hooks：插件写入 `~/.agent-notify/opencode-plugin.js`（二进制路径烘焙进 JS），路径注册到 `~/.config/opencode/opencode.json`（user）或 `./opencode.json`（project）的 `plugin` 数组。插件订阅 `session.created`→`session_start`、`permission.asked`→`permission_required`、`session.status`(idle)→`input_required`、`session.idle`→`run_completed`、`session.error`→`run_failed`。
+- WorkBuddy 使用 `~/.codebuddy/settings.json` 中与 CodeBuddy 一致的 Hook 配置格式。
+- Hermes 会写入 `~/.hermes/hooks/agent-notify/HOOK.yaml` 与 `handler.py`，这是它的 Gateway 事件入口。
+- OpenClaw 会写入 `~/.openclaw/extensions/agent-notify/` 自包含扩展；是否启用扩展、授予会话权限仍由 OpenClaw 自己控制。
 - **`SessionStart` 不产生任何通知。** 它在所有 agent 上被订阅，仅用于在会话启动时捕获终端窗口，为 Linux 的窗口级点击聚焦提供支持（见下方「点击聚焦」一节）；在 macOS/Windows 上该 hook 为空操作。
 
 ### 支持的平台
 
-| 平台 | 架构 | 状态 |
+| 平台 | Hook Runtime | 桌面控制台 |
 |:---:|:---:|:---:|
-| macOS | amd64 / arm64 | ✅ |
-| Linux | amd64 / arm64 | ✅ |
-| Windows | amd64 / arm64 | ✅ |
+| macOS amd64 / arm64 | ✅ | ✅ 源码构建菜单栏应用 |
+| Linux amd64 / arm64 | ✅ | — |
+| Windows amd64 / arm64 | ✅ | — |
 
 ### 点击聚焦（Click-to-Focus）
 
@@ -100,7 +125,7 @@ Host Hook 是通知数据面：系统通知和已配置的远程通知都由本�
 bunx agent-notify
 ```
 
-首次运行会从 GitHub Releases 下载当前 npm 包版本对应平台的二进制文件，并安装到：
+首次运行会从 GitHub Releases 下载当前 Bun 包版本对应平台的二进制文件，并安装到：
 
 - macOS / Linux: `~/.agent-notify/agent-notify`
 - Windows: `~/.agent-notify/agent-notify.exe`
@@ -126,6 +151,11 @@ Agent 集成配置位置：
 - Grok: `~/.grok/hooks/agent-notify.json`（写入 hooks → 命令 `agent-notify handle-grok-hook`；项目 scope 为 `.grok/hooks/agent-notify.json`）
 - Droid: `~/.factory/hooks.json`（写入 hooks → 命令 `agent-notify handle-droid-hook`；项目 scope 为 `.factory/hooks.json`）
 - OpenCode: `~/.config/opencode/opencode.json`（写入 `plugin` 数组 → `~/.agent-notify/opencode-plugin.js`，命令 `agent-notify handle-opencode-hook`；项目 scope 为 `./opencode.json`）
+- WorkBuddy / CodeBuddy: `~/.codebuddy/settings.json`（写入 `handle-workbuddy-hook`）
+- Hermes Agent: `~/.hermes/hooks/agent-notify/`（写入 Gateway Hook 清单与 handler）
+- OpenClaw: `~/.openclaw/extensions/agent-notify/`（写入 ESM 扩展）
+
+远程通道统一配置在 `~/.agent-notify/config.yaml` 的 `remote` 下，由全部已启用 Agent 共享；具体哪些事件发送，仍由各 Agent 的事件配置决定。
 
 ### 企业微信机器人绑定小技巧
 

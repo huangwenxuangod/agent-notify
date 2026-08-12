@@ -16,9 +16,9 @@
 
 ## Overview
 
-Agent Notify hooks into the lifecycle events of AI coding agents (Claude Code, Codex, WorkBuddy, Hermes, OpenClaw, ZCode, Grok, Droid, OpenCode, etc.) and pushes them to your phone and desktop. Get notified the moment your agent needs permission, is waiting for input, finishes a task, or fails — so you never have to babysit a running agent.
+Agent Notify is a local notification layer for AI agents. It detects installed agents, installs their official hook or plugin integration, and sends a native notification or a configured bot message when a task needs attention, finishes, or fails.
 
-Supported delivery channels: **OS-native system notifications**, **Feishu/Lark**, **WeChat Work (企业微信)**, **DingTalk (钉钉)**, **Bark (iOS)**, and **ntfy**.
+It supports **Claude Code, Codex, WorkBuddy / CodeBuddy, Hermes Agent, OpenClaw, ZCode, Grok, Droid, and OpenCode**. Delivery channels include **system notifications, Feishu / Lark, WeChat, WeChat Work, DingTalk, Bark, ntfy, and Slack**.
 
 <p align="center">
   <img src="assist/demo.gif" alt="Agent Notify demo" width="800">
@@ -30,17 +30,32 @@ Supported delivery channels: **OS-native system notifications**, **Feishu/Lark**
 bunx agent-notify
 ```
 
-## Desktop and Docker
+This opens the CLI setup wizard and installs only the agents and channels you select. The Bun launcher downloads the matching Go Hook Runtime into `~/.agent-notify/` and executes it by absolute path.
 
-The host Hook is the delivery path: it sends system and configured remote notifications directly, even while Docker is unavailable. Docker runs the optional Bridge for the desktop dashboard, event history, channel tests, and remote freeze state.
+## How It Works
+
+```text
+Agent event
+  -> host Hook / plugin
+  -> native system notification + configured bot channels
+  -> Docker Bridge (best-effort event history for the desktop app)
+```
+
+The host runtime is the delivery path. Notifications continue to work when Docker or the desktop app is stopped. Docker is a local control plane, not a relay that can become a single point of failure.
+
+## Desktop App and Docker
+
+The macOS desktop app is a source-built, menu-bar control panel. On launch it detects installed agents, installs missing user-level integrations, enables system notifications for connected agents, manages remote bot channels, shows event history, tests delivery, and controls login startup.
 
 ```bash
 ./deploy.sh up       # start the Bridge on 127.0.0.1:45173
-./deploy.sh desktop  # build and launch the macOS menu-bar app hidden
+./deploy.sh desktop  # build, update, and show Agent Notify.app
 ./deploy.sh status
 ```
 
-`~/.agent-notify/config.yaml` is the configuration authority. The desktop app mirrors it to the Bridge when it is online. WorkBuddy caches hook settings in its `codebuddy --serve` process; restart WorkBuddy after installing or updating its hooks.
+The app is signed ad-hoc for local use and is not notarized for public macOS distribution. `~/.agent-notify/config.yaml` remains the configuration authority; the app mirrors it to the Bridge when online.
+
+WorkBuddy caches hooks inside its `codebuddy --serve` process. Restart WorkBuddy after adding or updating its hooks.
 
 
 
@@ -60,14 +75,19 @@ The host Hook is the delivery path: it sends system and configured remote notifi
 | <img src="assist/logo/discord.png" width="24" align="absmiddle"> Discord | Push via Discord channel webhook | 🚧 Webhook |
 | <img src="assist/logo/telegram.png" width="24" align="absmiddle"> Telegram | Push via Telegram Bot API | 🚧 Bot token |
 
-### Supported Events
+### Agent Integrations
 
-| Event | Description | Claude Code | Codex | ZCode | Grok | Droid | OpenCode |
-|------|------|:---:|:---:|:---:|:----:|:---:|:---:|
-| `permission_required` | Agent needs authorization (e.g. to run a command) | ✅ | ✅ | ✅ |  ✅  | ✅ | ✅ |
-| `input_required` | Agent is waiting for user input | ✅ | — | — |  ✅  | ✅ | ✅ |
-| `run_completed` | Task finished | ✅ | ✅ | ✅ |  ✅  | ✅ | ✅ |
-| `run_failed` | Task failed | ✅ | — | ✅ |  ✅  | — | ✅ |
+| Agent | Integration | Events |
+|------|------|------|
+| Claude Code | Native hooks | Permission, input, completion, failure |
+| Codex | Official hooks | Permission and completion; run `/hooks` to trust it |
+| WorkBuddy / CodeBuddy | CodeBuddy-compatible hooks | Permission, input, completion, failure; restart after changes |
+| Hermes Agent | Gateway hook directory | Start, completion, failure, approval |
+| OpenClaw | ESM extension | Completion, failure, approval; enable the extension in OpenClaw |
+| ZCode | Native hooks | Permission, completion, failure |
+| Grok | Native hooks | Permission/input classification, completion, failure |
+| Droid | Native hooks | Permission/input classification and completion |
+| OpenCode | JavaScript plugin | Permission, input, completion, failure |
 
 Notes:
 
@@ -77,15 +97,18 @@ Notes:
 - Grok subscribes via `~/.grok/hooks/agent-notify.json`: `SessionStart`, `Notification`, `Stop`, `StopFailure`, and `PostToolUseFailure`. There is no dedicated `PermissionRequest` event; `Notification`s with permission/approval semantics map to `permission_required` (marked *), others map to `input_required`. `StopFailure` / `PostToolUseFailure` map to `run_failed`.
 - Droid subscribes via `~/.factory/hooks.json`: `SessionStart`, `Notification`, `Stop`, mapped to `session_start` / `permission_required`|`input_required` / `run_completed`. Droid has no failure event, so `run_failed` is not supported. `session_start` is only used for click-to-focus window capture, not as a notification event.
 - OpenCode uses a JS plugin instead of native hooks: the plugin is written to `~/.agent-notify/opencode-plugin.js` (binary path baked into JS), and its path is registered in `~/.config/opencode/opencode.json` (user) or `./opencode.json` (project) `plugin` array. The plugin subscribes to `session.created`→`session_start`, `permission.asked`→`permission_required`, `session.status`(idle)→`input_required`, `session.idle`→`run_completed`, `session.error`→`run_failed`.
+- WorkBuddy uses the CodeBuddy settings schema at `~/.codebuddy/settings.json`.
+- Hermes writes `~/.hermes/hooks/agent-notify/HOOK.yaml` and `handler.py`; this is its Gateway event surface.
+- OpenClaw writes a self-contained extension to `~/.openclaw/extensions/agent-notify/`. OpenClaw still controls whether that extension is enabled and granted conversation access.
 - **`SessionStart` does not produce a notification.** It is subscribed on every agent solely to capture the terminal window at session start, which powers Linux window-level [Click-to-Focus](#click-to-focus). On macOS/Windows the SessionStart hook is a no-op.
 
 ### Supported Platforms
 
-| Platform | Architecture | Status |
+| Platform | Hook Runtime | Desktop control panel |
 |:---:|:---:|:---:|
-| macOS | amd64 / arm64 | ✅ |
-| Linux | amd64 / arm64 | ✅ |
-| Windows | amd64 / arm64 | ✅ |
+| macOS amd64 / arm64 | ✅ | ✅ Source-built menu-bar app |
+| Linux amd64 / arm64 | ✅ | — |
+| Windows amd64 / arm64 | ✅ | — |
 
 ### Click-to-Focus
 
@@ -104,7 +127,7 @@ Click-to-focus is enabled by default for the System channel; the target app/wind
 
 ## Configuration
 
-On first run, the launcher downloads the platform-specific binary matching the current npm package version from GitHub Releases and installs it to:
+On first run, the launcher downloads the platform-specific binary matching the current Bun package version from GitHub Releases and installs it to:
 
 - macOS / Linux: `~/.agent-notify/agent-notify`
 - Windows: `~/.agent-notify/agent-notify.exe`
@@ -128,6 +151,11 @@ Agent integration config locations:
 - Grok: `~/.grok/hooks/agent-notify.json` (writes hooks → command `agent-notify handle-grok-hook`; project scope uses `.grok/hooks/agent-notify.json`)
 - Droid: `~/.factory/hooks.json` (writes hooks → command `agent-notify handle-droid-hook`; project scope uses `.factory/hooks.json`)
 - OpenCode: `~/.config/opencode/opencode.json` (writes `plugin` array → `~/.agent-notify/opencode-plugin.js`, command `agent-notify handle-opencode-hook`; project scope uses `./opencode.json`)
+- WorkBuddy / CodeBuddy: `~/.codebuddy/settings.json` (writes `handle-workbuddy-hook`)
+- Hermes Agent: `~/.hermes/hooks/agent-notify/` (writes a Gateway hook manifest and handler)
+- OpenClaw: `~/.openclaw/extensions/agent-notify/` (writes an ESM extension)
+
+Remote channels are configured once under `remote` in `~/.agent-notify/config.yaml` and shared by enabled agents. Agent-level event choices still decide which events are sent.
 
 ### WeChat Work Bot Binding Tip
 
