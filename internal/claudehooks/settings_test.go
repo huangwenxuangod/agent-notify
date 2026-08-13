@@ -18,7 +18,7 @@ func TestBuildHookSettings(t *testing.T) {
 		t.Fatalf("hooks type = %T, want map[string]any", got["hooks"])
 	}
 
-	events := []string{"PermissionRequest", "Notification", "Stop", "PostToolUseFailure"}
+	events := []string{"PermissionRequest", "PermissionDenied", "Notification", "Stop", "StopFailure", "PostToolUseFailure"}
 	for _, event := range events {
 		items, ok := hooks[event].([]map[string]any)
 		if !ok || len(items) != 1 {
@@ -130,6 +130,18 @@ func TestInstallIdempotent(t *testing.T) {
 		if marked != 1 {
 			t.Fatalf("%s has %d agent-notify hooks after re-install, want 1", event, marked)
 		}
+	}
+}
+
+func TestIsInstalledRequiresEveryManagedEvent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x handle-claude-hook"}]}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := IsInstalled(path)
+	if err != nil || installed {
+		t.Fatalf("IsInstalled() = %v, %v; want false for stale partial hooks", installed, err)
 	}
 }
 

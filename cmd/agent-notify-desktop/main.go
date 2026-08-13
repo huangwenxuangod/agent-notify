@@ -170,6 +170,37 @@ func enableSystemNotifications(cfg *config.Config, agents []string) bool {
 	return changed
 }
 
+func setSystemNotifications(cfg *config.Config, agents []string, enabled bool) bool {
+	changed := false
+	for _, id := range agents {
+		notifyCfg := notifyConfigForAgent(cfg, id)
+		if notifyCfg != nil && notifyCfg.Channels.System.Enabled != enabled {
+			notifyCfg.Channels.System.Enabled = enabled
+			changed = true
+		}
+	}
+	return changed
+}
+
+// Codex Desktop emits structured task errors in its session journal even
+// though the official CLI hook API has no failure event. Enable this desktop
+// compatibility event only when Codex is actually connected.
+func enableCodexDesktopFailureNotifications(cfg *config.Config, agents []string) bool {
+	for _, id := range agents {
+		if id != "codex" {
+			continue
+		}
+		for _, event := range cfg.Notify.Codex.Events {
+			if event == "run_failed" {
+				return false
+			}
+		}
+		cfg.Notify.Codex.Events = append(cfg.Notify.Codex.Events, "run_failed")
+		return true
+	}
+	return false
+}
+
 func setClickToFocus(cfg *config.Config, agents []string, enabled bool) bool {
 	changed := false
 	for _, id := range agents {
@@ -285,7 +316,7 @@ func (a *App) AutoSetup() ([]bridge.AgentStatus, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read host notification config: %w", err)
 	}
-	if enableSystemNotifications(&cfg, connected) {
+	if enableSystemNotifications(&cfg, connected) || enableCodexDesktopFailureNotifications(&cfg, connected) {
 		if err := a.service.SaveConfig(cfg); err != nil {
 			return nil, fmt.Errorf("save host notification config: %w", err)
 		}
@@ -439,6 +470,43 @@ func (a *App) SetClickToFocus(enabled bool) error {
 	return a.SaveConfig(cfg)
 }
 
+func (a *App) SystemNotifications() (bool, error) {
+	agents, err := a.service.ScanAgents()
+	if err != nil {
+		return false, err
+	}
+	connected := connectedAgentIDs(agents)
+	if len(connected) == 0 {
+		return true, nil
+	}
+	cfg, err := a.service.GetConfig()
+	if err != nil {
+		return false, err
+	}
+	for _, id := range connected {
+		notifyCfg := notifyConfigForAgent(&cfg, id)
+		if notifyCfg != nil && !notifyCfg.Channels.System.Enabled {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (a *App) SetSystemNotifications(enabled bool) error {
+	agents, err := a.service.ScanAgents()
+	if err != nil {
+		return err
+	}
+	cfg, err := a.service.GetConfig()
+	if err != nil {
+		return err
+	}
+	if !setSystemNotifications(&cfg, connectedAgentIDs(agents), enabled) {
+		return nil
+	}
+	return a.SaveConfig(cfg)
+}
+
 func (a *App) startTray(ctx context.Context) {
 	if err := notify.EnsureRegisteredTerminalNotifier(); err != nil {
 		log.Printf("register macOS notification helper: %v", err)
@@ -502,8 +570,8 @@ func (a *App) watchCodexDesktop(ctx context.Context) {
 	}
 	if err := codexmonitor.Watch(ctx, path, func(event codexmonitor.Event) {
 		msg := notify.Message{
-			Agent: "codex", Event: "run_completed", SessionID: event.SessionID,
-			Title: notify.FormatTitle("codex", "run_completed"), Body: event.Body,
+			Agent: "codex", Event: event.Event, SessionID: event.SessionID,
+			Title: notify.FormatTitle("codex", event.Event), Body: event.Body,
 		}
 		a.dispatchDesktopMessage(msg)
 	}); err != nil {
@@ -521,12 +589,15 @@ func (a *App) watchWorkBuddyDesktop(ctx context.Context) {
 		return
 	}
 	if err := workbuddymonitor.Watch(ctx, path, func(event workbuddymonitor.Event) {
+		if event.Event == "" {
+			event.Event = "run_completed"
+		}
 		if event.Body == "" {
-			event.Body = notify.DefaultBody("run_completed")
+			event.Body = notify.DefaultBody(event.Event)
 		}
 		msg := notify.Message{
-			Agent: "workbuddy", Event: "run_completed", SessionID: event.SessionID,
-			Workspace: event.Workspace, Title: notify.FormatTitle("workbuddy", "run_completed"), Body: event.Body,
+			Agent: "workbuddy", Event: event.Event, SessionID: event.SessionID,
+			Workspace: event.Workspace, Title: notify.FormatTitle("workbuddy", event.Event), Body: event.Body,
 		}
 		a.dispatchDesktopMessage(msg)
 	}); err != nil && !os.IsNotExist(err) {

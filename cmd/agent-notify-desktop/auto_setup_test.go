@@ -79,6 +79,37 @@ func TestEnableSystemNotificationsOnlyChangesSelectedAgents(t *testing.T) {
 	}
 }
 
+func TestSetSystemNotificationsOnlyChangesSelectedAgents(t *testing.T) {
+	cfg := config.Default()
+	enableSystemNotifications(&cfg, []string{"codex", "workbuddy"})
+	if !setSystemNotifications(&cfg, []string{"codex", "workbuddy"}, false) {
+		t.Fatal("setSystemNotifications() = false, want changed")
+	}
+	if cfg.Notify.Codex.Channels.System.Enabled || cfg.Notify.WorkBuddy.Channels.System.Enabled {
+		t.Fatal("selected agents must have system notifications disabled")
+	}
+	if cfg.Notify.ClaudeCode.Channels.System.Enabled {
+		t.Fatal("unselected agent must remain unchanged")
+	}
+}
+
+func TestEnableCodexDesktopFailureNotifications(t *testing.T) {
+	cfg := config.Default()
+	if enableCodexDesktopFailureNotifications(&cfg, []string{"workbuddy"}) {
+		t.Fatal("unconnected Codex must not change its event configuration")
+	}
+	if !enableCodexDesktopFailureNotifications(&cfg, []string{"codex"}) {
+		t.Fatal("connected Codex must enable desktop failure notifications")
+	}
+	found := false
+	for _, event := range cfg.Notify.Codex.Events {
+		found = found || event == "run_failed"
+	}
+	if !found {
+		t.Fatalf("Codex events = %#v, want run_failed", cfg.Notify.Codex.Events)
+	}
+}
+
 func TestSetClickToFocusOnlyChangesSelectedAgents(t *testing.T) {
 	cfg := config.Default()
 	cfg.Notify.Codex.Channels.System.ClickToFocus = true

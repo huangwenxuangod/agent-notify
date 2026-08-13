@@ -17,8 +17,10 @@ const hookCommandMarker = "handle-claude-hook"
 var managedEvents = []string{
 	"SessionStart",
 	"PermissionRequest",
+	"PermissionDenied",
 	"Notification",
 	"Stop",
+	"StopFailure",
 	"PostToolUseFailure",
 }
 
@@ -83,7 +85,27 @@ func IsInstalled(path string) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	return common.HasManagedHook(hooks, managedEvents, hookCommandMarker), nil
+	for _, event := range managedEvents {
+		raw, ok := hooks.Get(event)
+		if !ok {
+			return false, nil
+		}
+		entries, err := common.HookEntries(raw)
+		if err != nil {
+			return false, nil
+		}
+		found := false
+		for _, entry := range entries {
+			if common.EntryHasManagedHook(entry, hookCommandMarker) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // Uninstall 仅移除本插件写入的 hook 条目（command 含 handle-claude-hook）。

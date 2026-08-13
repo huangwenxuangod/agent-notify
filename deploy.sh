@@ -36,7 +36,7 @@ desktop() {
   # makes the desktop command deterministic and avoids an implicit toolchain
   # download when the machine is offline.
   if ! GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOTELEMETRY=off \
-    go build -tags dev -o "$executable" ./cmd/agent-notify-desktop; then
+    go build -tags production -o "$executable" ./cmd/agent-notify-desktop; then
     echo "Desktop build needs Go modules in the local cache. Connect once and run: go mod download" >&2
     exit 1
   fi

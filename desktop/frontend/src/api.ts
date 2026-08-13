@@ -25,7 +25,9 @@ declare global { interface Window { go?: { main?: { App?: {
   Autostart:()=>Promise<AutostartStatus>;
   SetAutostart:(enabled:boolean)=>Promise<void>;
   ClickToFocus:()=>Promise<boolean>;
-  SetClickToFocus:(enabled:boolean)=>Promise<void>;
+	SetClickToFocus:(enabled:boolean)=>Promise<void>;
+	SystemNotifications:()=>Promise<boolean>;
+	SetSystemNotifications:(enabled:boolean)=>Promise<void>;
 } } } } }
 
 const app=()=>window.go?.main?.App;
@@ -52,3 +54,5 @@ export const autostart=()=>call<AutostartStatus>('Autostart');
 export const setAutostart=(enabled:boolean)=>call<void>('SetAutostart',enabled);
 export const clickToFocus=()=>call<boolean>('ClickToFocus');
 export const setClickToFocus=(enabled:boolean)=>call<void>('SetClickToFocus',enabled);
+export const systemNotifications=()=>call<boolean>('SystemNotifications');
+export const setSystemNotifications=(enabled:boolean)=>call<void>('SetSystemNotifications',enabled);

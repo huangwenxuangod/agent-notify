@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,20 +19,42 @@ type record struct {
 		Message string `json:"message"`
 		Phase   string `json:"phase"`
 	} `json:"payload"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 func ParseFinalAnswer(line string) (string, bool) {
-	var value record
-	if json.Unmarshal([]byte(line), &value) != nil || value.Type != "event_msg" || value.Payload.Type != "agent_message" || value.Payload.Phase != "final_answer" {
+	event, ok := ParseJournalEvent(line)
+	if !ok || event.Event != "run_completed" {
 		return "", false
 	}
-	message := strings.TrimSpace(value.Payload.Message)
-	return message, message != ""
+	return event.Body, true
 }
 
 type Event struct {
 	SessionID string
+	Event     string
 	Body      string
+}
+
+// ParseJournalEvent recognizes terminal Codex Desktop outcomes. The desktop UI
+// does not invoke CLI hooks, so final answers and task errors come from its
+// session journal.
+func ParseJournalEvent(line string) (Event, bool) {
+	var value record
+	if json.Unmarshal([]byte(line), &value) != nil || value.Type != "event_msg" {
+		return Event{}, false
+	}
+	if value.Payload.Type == "agent_message" && value.Payload.Phase == "final_answer" {
+		message := strings.TrimSpace(value.Payload.Message)
+		return Event{Event: "run_completed", Body: message}, message != ""
+	}
+	if value.Payload.Type == "task_complete" && value.Error != nil {
+		message := strings.TrimSpace(value.Error.Message)
+		return Event{Event: "run_failed", Body: message}, message != ""
+	}
+	return Event{}, false
 }
 
 func DefaultSessionsPath() (string, error) {
@@ -62,8 +85,9 @@ func Watch(ctx context.Context, root string, emit func(Event)) error {
 		}
 		for _, path := range paths {
 			position := positions[path]
-			next, err := readNew(path, position, func(message string) {
-				emit(Event{SessionID: sessionID(path), Body: message})
+			next, err := readNew(path, position, func(event Event) {
+				event.SessionID = sessionID(path)
+				emit(event)
 			})
 			if err == nil {
 				positions[path] = next
@@ -89,7 +113,7 @@ func sessionFiles(root string) ([]string, error) {
 	return paths, err
 }
 
-func readNew(path string, offset int64, emit func(string)) (int64, error) {
+func readNew(path string, offset int64, emit func(Event)) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return offset, err
@@ -102,20 +126,27 @@ func readNew(path string, offset int64, emit func(string)) (int64, error) {
 	if offset > info.Size() {
 		offset = 0
 	}
-	if _, err := f.Seek(offset, os.SEEK_SET); err != nil {
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return offset, err
 	}
-	reader := bufio.NewScanner(f)
-	for reader.Scan() {
-		if message, ok := ParseFinalAnswer(reader.Text()); ok {
-			emit(message)
+	reader := bufio.NewReader(f)
+	next := offset
+	for {
+		line, err := reader.ReadString('\n')
+		if line != "" && err == nil {
+			next += int64(len(line))
+			if event, ok := ParseJournalEvent(strings.TrimSpace(line)); ok {
+				emit(event)
+			}
 		}
+		if err == nil {
+			continue
+		}
+		if err == io.EOF {
+			return next, nil
+		}
+		return next, err
 	}
-	if err := reader.Err(); err != nil {
-		return offset, err
-	}
-	next, err := f.Seek(0, os.SEEK_CUR)
-	return next, err
 }
 
 func sessionID(path string) string {

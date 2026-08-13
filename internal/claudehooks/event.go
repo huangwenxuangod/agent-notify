@@ -16,6 +16,8 @@ type payload struct {
 	CWD           string `json:"cwd"`
 	Message       string `json:"message"`
 	ToolName      string `json:"tool_name"`
+	ErrorMessage  string `json:"error_message"`
+	ErrorType     string `json:"error_type"`
 	// tool_response / tool_input 依工具而异(对象/字符串/数组),用 RawMessage
 	// 容错解析,单字段类型意外不丢整个事件(issue #32)
 	ToolResponse json.RawMessage `json:"tool_response"`
@@ -47,6 +49,13 @@ func ParseMessage(stdin io.Reader) (notify.Message, error) {
 			Title:     notify.FormatTitle("claude_code", "permission_required"),
 			Body:      fmt.Sprintf("工具: %s\n操作需要您的授权许可", p.ToolName),
 		}, nil
+	case "PermissionDenied":
+		reason := strings.TrimSpace(p.Message)
+		if reason == "" {
+			reason = "权限请求被拒绝"
+		}
+		return notify.Message{Agent: "claude_code", Event: "permission_required", SessionID: p.SessionID, Workspace: p.CWD,
+			Title: notify.FormatTitle("claude_code", "permission_required"), Body: fmt.Sprintf("工具: %s\n%s", p.ToolName, common.TruncateRunes(reason, 200))}, nil
 	case "Notification":
 		if isInputRequiredNotification(p.Message) {
 			// Extract a cleaner hint from the message
@@ -70,6 +79,19 @@ func ParseMessage(stdin io.Reader) (notify.Message, error) {
 			Title:     notify.FormatTitle("claude_code", "run_completed"),
 			Body:      notify.DefaultBody("run_completed"),
 		}, nil
+	case "StopFailure":
+		reason := strings.TrimSpace(p.ErrorMessage)
+		if reason == "" {
+			reason = strings.TrimSpace(p.Message)
+		}
+		if reason == "" {
+			reason = "Agent 异常停止"
+		}
+		if p.ErrorType != "" {
+			reason = p.ErrorType + ": " + reason
+		}
+		return notify.Message{Agent: "claude_code", Event: "run_failed", SessionID: p.SessionID, Workspace: p.CWD,
+			Title: notify.FormatTitle("claude_code", "run_failed"), Body: common.TruncateRunes(reason, 240)}, nil
 	case "PostToolUseFailure":
 		errMsg := extractErrorMessage(common.LenientObject(p.ToolResponse))
 		return notify.Message{

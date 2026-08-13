@@ -29,6 +29,26 @@ func TestParsePermissionRequest(t *testing.T) {
 	}
 }
 
+func TestParseStopFailure(t *testing.T) {
+	msg, err := parseMessageBytes([]byte(`{"hook_event_name":"StopFailure","session_id":"s1","cwd":"/w","error_message":"429 Too Many Requests","error_type":"api_error"}`))
+	if err != nil {
+		t.Fatalf("ParseMessage() error = %v", err)
+	}
+	if msg.Event != "run_failed" || !strings.Contains(msg.Body, "429 Too Many Requests") {
+		t.Fatalf("msg = %+v, want run_failed with error", msg)
+	}
+}
+
+func TestParsePermissionDenied(t *testing.T) {
+	msg, err := parseMessageBytes([]byte(`{"hook_event_name":"PermissionDenied","session_id":"s1","cwd":"/w","tool_name":"Bash","message":"用户拒绝了执行"}`))
+	if err != nil {
+		t.Fatalf("ParseMessage() error = %v", err)
+	}
+	if msg.Event != "permission_required" || !strings.Contains(msg.Body, "用户拒绝") {
+		t.Fatalf("msg = %+v, want permission_required with reason", msg)
+	}
+}
+
 func TestParseNotificationWaitingInput(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "hooks", "notification_waiting_input.json"))
 	if err != nil {

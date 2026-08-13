@@ -41,7 +41,9 @@ import {
   sendTestChannel,
 	 testSystemNotification,
   setAutostart,
+	setSystemNotifications,
   setClickToFocus,
+	systemNotifications,
 } from "./api";
 
 type View = "channels" | "settings";
@@ -190,6 +192,7 @@ let selected: RemoteKey = "Ntfy";
 let data: Data | undefined;
 let notice = "";
 let theme = (localStorage.getItem("agent-notify-theme") as Theme) || "system";
+let systemNotificationsEnabled = true;
 
 const escape = (value: string) =>
   value.replace(
@@ -263,7 +266,7 @@ function generalSettings() {
 function notificationSettings() {
   const hook = data!.codexHook;
   const runtimeState = hook.last_event_at ? `最近真实事件：${new Date(hook.last_event_at).toLocaleString()} · ${hook.last_event}` : hook.installed ? "已写入，尚未收到真实 Hook 事件" : "尚未写入 Hook";
-  return `${settingHeader("通知", "管理宿主机的本地提醒行为。")}<div class="setting-list">${toggleRow("点击后回到工作应用", "点击系统通知时，尝试激活触发事件的终端或 IDE。", "data-focus", data!.clickToFocus)}<div class="setting-row"><div><h2>Codex Hook</h2><p>${runtimeState}</p></div><button class="secondary" data-action="codex-hook-review">${icon("check")}重新打开审核</button></div><div class="setting-row"><div><h2>系统通知</h2><p>直接由本机发送，不经过 Docker。</p></div><button class="secondary" data-action="test-system">${icon("send")}发送测试</button></div></div>`;
+	return `${settingHeader("通知", "管理宿主机的本地提醒行为。")}<div class="setting-list">${toggleRow("系统通知", "直接由本机发送，关闭后只保留远程通知。", "data-system-notifications", systemNotificationsEnabled)}${toggleRow("点击后回到工作应用", "点击系统通知时，尝试激活触发事件的终端或 IDE。", "data-focus", data!.clickToFocus, !systemNotificationsEnabled)}<div class="setting-row"><div><h2>Codex Hook</h2><p>${runtimeState}</p></div><button class="secondary" data-action="codex-hook-review">${icon("check")}重新打开审核</button></div><div class="setting-row"><div><h2>发送系统测试</h2><p>验证当前 macOS 通知权限。</p></div><button class="secondary" data-action="test-system" ${systemNotificationsEnabled ? "" : "disabled"}>${icon("send")}发送测试</button></div></div>`;
 }
 function appearanceSettings() {
   return `${settingHeader("外观", "选择 Agent Notify 的显示模式。")}<div class="theme-grid">${(["system", "light", "dark"] as Theme[]).map((item) => `<button class="theme-choice ${theme === item ? "active" : ""}" data-theme="${item}">${icon(item === "system" ? "monitor" : item === "light" ? "sun" : "moon")}<span>${item === "system" ? "跟随系统" : item === "light" ? "浅色" : "深色"}</span>${theme === item ? icon("check") : ""}</button>`).join("")}</div>`;
@@ -277,18 +280,20 @@ async function refresh() {
   render();
   try {
     await autoSetup();
-    const [nextConfig, nextAutostart, nextClickToFocus, nextCodexHook] = await Promise.all([
-      config(),
-      autostart(),
-      clickToFocus(),
-		codexHookStatus(),
-    ]);
-    data = {
-      config: nextConfig,
-      autostart: nextAutostart,
-      clickToFocus: nextClickToFocus,
-		codexHook: nextCodexHook,
-    };
+		const [nextConfig, nextAutostart, nextSystemNotifications, nextClickToFocus, nextCodexHook] = await Promise.all([
+			config(),
+			autostart(),
+			systemNotifications(),
+			clickToFocus(),
+			codexHookStatus(),
+	    ]);
+		systemNotificationsEnabled = nextSystemNotifications;
+	    data = {
+			config: nextConfig,
+			autostart: nextAutostart,
+			clickToFocus: nextClickToFocus,
+			codexHook: nextCodexHook,
+	    };
   } catch (error) {
     notice = `无法连接 Docker Bridge: ${String(error)}`;
   }
@@ -367,6 +372,20 @@ function bind() {
       render();
     }),
   );
+  app
+	.querySelector<HTMLInputElement>("[data-system-notifications]")
+	?.addEventListener("change", async (event) => {
+		try {
+			const enabled = (event.target as HTMLInputElement).checked;
+			await setSystemNotifications(enabled);
+			systemNotificationsEnabled = enabled;
+			notice = enabled ? "系统通知已开启" : "系统通知已关闭";
+			render();
+		} catch (error) {
+			notice = `保存失败: ${String(error)}`;
+			render();
+		}
+	});
   app
     .querySelector<HTMLInputElement>("[data-channel-enabled]")
     ?.addEventListener("change", render);
