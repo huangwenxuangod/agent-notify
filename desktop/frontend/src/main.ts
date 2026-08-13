@@ -16,7 +16,6 @@ import {
   MousePointer2,
   Palette,
   Radio,
-  RefreshCw,
   Save,
   Send,
   Settings2,
@@ -88,7 +87,6 @@ const icons = {
   MousePointer2,
   Palette,
   Radio,
-  RefreshCw,
   Save,
   Send,
   Settings2,
@@ -215,9 +213,14 @@ function applyTheme() {
 function icon(name: string) {
   return `<i data-lucide="${name}"></i>`;
 }
+function isDarkTheme() {
+  return theme === "dark" ||
+    (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}
 function render() {
   applyTheme();
-  app.innerHTML = `<div class="shell"><header class="topbar"><div class="wordmark">Agent Notify</div><nav class="primary-nav"><button class="nav-icon ${view === "channels" ? "active" : ""}" data-view="channels" title="通知渠道" aria-label="通知渠道">${icon("bell-ring")}</button><button class="nav-icon ${view === "settings" ? "active" : ""}" data-view="settings" title="设置" aria-label="设置">${icon("settings-2")}</button></nav><div class="toolbar"><button class="toolbar-icon" data-action="theme" title="切换主题" aria-label="切换主题">${icon(theme === "dark" ? "moon" : theme === "light" ? "sun" : "monitor")}</button><button class="toolbar-icon" data-action="refresh" title="刷新状态" aria-label="刷新状态">${icon("refresh-cw")}</button></div></header><main>${data ? (view === "channels" ? channelsPage() : settingsPage()) : loading()}</main>${notice ? `<div class="toast">${icon("circle-check")}<span>${escape(notice)}</span></div>` : ""}</div>`;
+  const dark = isDarkTheme();
+  app.innerHTML = `<div class="shell"><header class="topbar"><div class="wordmark">Agent Notify</div><nav class="primary-nav"><button class="nav-icon ${view === "channels" ? "active" : ""}" data-view="channels" title="通知渠道" aria-label="通知渠道">${icon("bell-ring")}</button><button class="nav-icon ${view === "settings" ? "active" : ""}" data-view="settings" title="设置" aria-label="设置">${icon("settings-2")}</button></nav><div class="toolbar"><button class="toolbar-icon" data-action="theme" title="切换至${dark ? "浅色" : "深色"}模式" aria-label="切换至${dark ? "浅色" : "深色"}模式">${icon(dark ? "moon" : "sun")}</button></div></header><main>${data ? (view === "channels" ? channelsPage() : settingsPage()) : loading()}</main>${notice ? `<div class="toast">${icon("circle-check")}<span>${escape(notice)}</span></div>` : ""}</div>`;
   createIcons({ icons });
   bind();
 }
@@ -354,12 +357,8 @@ function bind() {
       render();
     }),
   );
-  app
-    .querySelector('[data-action="refresh"]')
-    ?.addEventListener("click", refresh);
   app.querySelector('[data-action="theme"]')?.addEventListener("click", () => {
-    theme =
-      theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+    theme = isDarkTheme() ? "light" : "dark";
     render();
   });
   app.querySelectorAll<HTMLElement>("[data-theme]").forEach((element) =>
