@@ -2,8 +2,10 @@ package agenthooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/hellolib/agent-notify/internal/bridgeclient"
@@ -50,11 +52,14 @@ func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 
 	store := state.NewStore(statePath)
 	timeout := time.Duration(cfg.Behavior.SendTimeoutSeconds) * time.Second
+	systemDelivered := false
 	if host {
 		if sender := buildSystemSender(cfg, msg); sender != nil {
 			sendCtx, cancel := context.WithTimeout(ctx, systemSendTimeout(timeout))
 			if err := notify.NewDispatcher(store, time.Duration(cfg.Behavior.DedupeSeconds)*time.Second, sender).SendAll(sendCtx, msg); err != nil {
 				_ = state.AppendLog(logPath, fmt.Sprintf("system dispatch error event=%s err=%v", msg.Event, err))
+			} else {
+				systemDelivered = true
 			}
 			cancel()
 		}
@@ -62,9 +67,13 @@ func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 
 	senders := buildRemoteSenders(cfg, msg)
 	if len(senders) == 0 {
-		appendEventRecord(statePath, logPath, msg, "no_sender")
-		recordBridgeEvent(ctx, host, logPath, msg, "no_sender")
-		return state.AppendLog(logPath, fmt.Sprintf("no sender enabled for event=%s", msg.Event))
+		result := overallDeliveryResult(systemDelivered, nil, false)
+		appendEventRecord(statePath, logPath, msg, result)
+		recordBridgeEvent(ctx, host, logPath, msg, result)
+		if result == "no_sender" {
+			return state.AppendLog(logPath, fmt.Sprintf("no sender enabled for event=%s", msg.Event))
+		}
+		return nil
 	}
 
 	// 临时冻结：在 ReserveSend 之前按渠道静默丢弃，不占去重名额、不改 agent hooks。
@@ -80,15 +89,66 @@ func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 	defer cancel()
 
 	if err := dispatcher.SendAll(sendCtx, msg); err != nil {
-		result := deliveryResult(err)
+		result := overallDeliveryResult(systemDelivered, err, true)
+		enqueueRemoteRetry(statePath, logPath, msg, failedSenderNames(err, senders), err)
 		appendEventRecord(statePath, logPath, msg, result)
 		recordBridgeEvent(ctx, host, logPath, msg, result)
 		return state.AppendLog(logPath, fmt.Sprintf("dispatch error event=%s session=%s err=%v", msg.Event, msg.SessionID, err))
 	}
-	appendEventRecord(statePath, logPath, msg, "sent")
-	recordBridgeEvent(ctx, host, logPath, msg, "sent")
+	result := overallDeliveryResult(systemDelivered, nil, true)
+	appendEventRecord(statePath, logPath, msg, result)
+	recordBridgeEvent(ctx, host, logPath, msg, result)
 
 	return nil
+}
+
+func overallDeliveryResult(systemDelivered bool, remoteErr error, hadRemote bool) string {
+	if remoteErr == nil && (systemDelivered || hadRemote) {
+		return "sent"
+	}
+	if systemDelivered {
+		return "partial"
+	}
+	if remoteErr != nil {
+		return "error"
+	}
+	return "no_sender"
+}
+
+func failedSenderNames(err error, senders []notify.Sender) []string {
+	var delivery *notify.DeliveryError
+	if !errors.As(err, &delivery) {
+		return senderNames(senders)
+	}
+	failed := make(map[string]bool)
+	for _, detail := range delivery.Details {
+		if name, _, ok := strings.Cut(detail, ":"); ok {
+			failed[strings.TrimSpace(name)] = true
+		}
+	}
+	names := make([]string, 0, len(failed))
+	for name := range failed {
+		names = append(names, name)
+	}
+	return names
+}
+
+func senderNames(senders []notify.Sender) []string {
+	names := make([]string, 0, len(senders))
+	for _, sender := range senders {
+		names = append(names, sender.Name())
+	}
+	return names
+}
+
+func enqueueRemoteRetry(statePath, logPath string, msg notify.Message, channels []string, err error) {
+	if len(channels) == 0 {
+		return
+	}
+	item := state.RemoteOutboxItem{Agent: msg.Agent, Event: msg.Event, SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title, Body: msg.Body, Channels: channels, LastError: err.Error()}
+	if saveErr := state.NewRemoteOutbox(state.RemoteOutboxPath(statePath)).Enqueue(item); saveErr != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("remote retry enqueue error: %v", saveErr))
+	}
 }
 
 func deliveryResult(err error) string {

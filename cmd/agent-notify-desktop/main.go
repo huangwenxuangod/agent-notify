@@ -12,6 +12,7 @@ import (
 	"github.com/hellolib/agent-notify/internal/common"
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/notify"
+	"github.com/hellolib/agent-notify/internal/state"
 	"github.com/hellolib/agent-notify/internal/tray"
 	"github.com/hellolib/agent-notify/internal/workbuddymonitor"
 	"github.com/wailsapp/wails/v2"
@@ -50,6 +51,13 @@ type HookRuntimeStatus struct {
 	Installed   bool   `json:"installed"`
 	LastEventAt string `json:"last_event_at,omitempty"`
 	LastEvent   string `json:"last_event,omitempty"`
+}
+
+type DesktopStatus struct {
+	Agents       []bridge.AgentStatus `json:"agents"`
+	Events       []interface{}        `json:"events"`
+	Logs         []string             `json:"logs"`
+	PendingRetry int                  `json:"pending_retry"`
 }
 
 const codexHookReviewScript = `tell application "Terminal"
@@ -292,7 +300,7 @@ func (a *App) Uninstall(agents []string, scope string) (bridge.SetupResult, erro
 	return a.service.UninstallAgents(bridge.SetupRequest{Agents: agents, Scope: scope})
 }
 func (a *App) Events() ([]interface{}, error) {
-	events, err := bridgeclient.ListEvents(context.Background(), "", "")
+	events, err := a.service.ListEvents(8)
 	if err != nil {
 		return nil, err
 	}
@@ -301,6 +309,33 @@ func (a *App) Events() ([]interface{}, error) {
 		out[i] = v
 	}
 	return out, nil
+}
+func (a *App) Status() (DesktopStatus, error) {
+	agents, err := a.service.ScanAgents()
+	if err != nil {
+		return DesktopStatus{}, err
+	}
+	events, err := a.service.ListEvents(8)
+	if err != nil {
+		return DesktopStatus{}, err
+	}
+	logs, err := a.service.ListLogs(8)
+	if err != nil {
+		return DesktopStatus{}, err
+	}
+	statePath, err := config.StatePath()
+	if err != nil {
+		return DesktopStatus{}, err
+	}
+	pending, err := state.NewRemoteOutbox(state.RemoteOutboxPath(statePath)).List()
+	if err != nil {
+		return DesktopStatus{}, err
+	}
+	out := make([]interface{}, len(events))
+	for i, event := range events {
+		out[i] = event
+	}
+	return DesktopStatus{Agents: agents, Events: out, Logs: logs, PendingRetry: len(pending)}, nil
 }
 func (a *App) Config() (config.Config, error) {
 	return a.service.GetConfig()
@@ -409,6 +444,7 @@ func (a *App) startTray(ctx context.Context) {
 		log.Printf("register macOS notification helper: %v", err)
 	}
 	go func() { _, _ = a.AutoSetup() }()
+	go a.retryRemoteOutbox(ctx)
 	go a.watchWorkBuddyDesktop(ctx)
 	go a.watchCodexDesktop(ctx)
 	tray.Start(tray.Actions{
@@ -420,6 +456,42 @@ func (a *App) startTray(ctx context.Context) {
 			runtime.Quit(ctx)
 		},
 	})
+}
+
+func (a *App) retryRemoteOutbox(ctx context.Context) {
+	retry := func() {
+		cfg, err := a.service.GetConfig()
+		if err != nil {
+			log.Printf("read config for remote retry: %v", err)
+			return
+		}
+		statePath, err := config.StatePath()
+		if err != nil {
+			log.Printf("resolve state path for remote retry: %v", err)
+			return
+		}
+		completed, err := agenthooks.RetryRemoteOutbox(ctx, cfg, statePath, func(retryCtx context.Context, msg notify.Message, senders []notify.Sender) error {
+			return agenthooks.DispatchRemoteOutboxItem(retryCtx, cfg, statePath, msg, senders)
+		})
+		if err != nil {
+			log.Printf("retry remote notifications: %v", err)
+			return
+		}
+		if completed > 0 {
+			log.Printf("retried %d remote notification(s)", completed)
+		}
+	}
+	retry()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			retry()
+		}
+	}
 }
 
 func (a *App) watchCodexDesktop(ctx context.Context) {
