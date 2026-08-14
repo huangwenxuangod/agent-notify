@@ -28,6 +28,7 @@ desktop() {
   local app_path="$HOME/Applications/Agent Notify.app"
   local contents="$app_path/Contents"
   local executable="$contents/MacOS/Agent Notify"
+  local hook_binary="${AGENT_NOTIFY_HOOK_BINARY:-$HOME/.agent-notify/agent-notify}"
 
   (cd "$ROOT_DIR/desktop" && bun install --frozen-lockfile && bun run typecheck && bun run build)
   mkdir -p "$contents/MacOS"
@@ -40,6 +41,13 @@ desktop() {
     echo "Desktop build needs Go modules in the local cache. Connect once and run: go mod download" >&2
     exit 1
   fi
+  mkdir -p "$(dirname "$hook_binary")"
+  if ! GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOTELEMETRY=off \
+    go build -tags production -o "$hook_binary" ./cmd/agent-notify; then
+    echo "Hook runtime build failed; desktop app was not opened." >&2
+    exit 1
+  fi
+  chmod 755 "$hook_binary"
   cp "$ROOT_DIR/cmd/agent-notify-desktop/build/darwin/Info.plist" "$contents/Info.plist"
   cp "$ROOT_DIR/cmd/agent-notify-desktop/build/darwin/AgentNotify.icns" "$contents/Resources/AgentNotify.icns"
   codesign --force --deep --sign - "$app_path"
