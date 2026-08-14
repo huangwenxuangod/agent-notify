@@ -134,28 +134,7 @@ func openNativeHookReviews(ids []string) {
 }
 
 func notifyConfigForAgent(cfg *config.Config, id string) *config.AgentNotifyConfig {
-	switch id {
-	case "claude_code":
-		return &cfg.Notify.ClaudeCode
-	case "codex":
-		return &cfg.Notify.Codex
-	case "zcode":
-		return &cfg.Notify.ZCode
-	case "grok":
-		return &cfg.Notify.Grok
-	case "droid":
-		return &cfg.Notify.Droid
-	case "opencode":
-		return &cfg.Notify.OpenCode
-	case "workbuddy":
-		return &cfg.Notify.WorkBuddy
-	case "hermes":
-		return &cfg.Notify.Hermes
-	case "openclaw":
-		return &cfg.Notify.OpenClaw
-	default:
-		return nil
-	}
+	return cfg.Notify.ByID(id)
 }
 
 func enableSystemNotifications(cfg *config.Config, agents []string) bool {

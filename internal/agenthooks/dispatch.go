@@ -293,24 +293,9 @@ func filterFrozenSenders(statePath, logPath, event string, senders []notify.Send
 func buildRemoteSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 	var senders []notify.Sender
 
-	notifyCfg := cfg.Notify.ClaudeCode
-	switch msg.Agent {
-	case "codex":
-		notifyCfg = cfg.Notify.Codex
-	case "zcode":
-		notifyCfg = cfg.Notify.ZCode
-	case "grok":
-		notifyCfg = cfg.Notify.Grok
-	case "droid":
-		notifyCfg = cfg.Notify.Droid
-	case "opencode":
-		notifyCfg = cfg.Notify.OpenCode
-	case "workbuddy":
-		notifyCfg = cfg.Notify.WorkBuddy
-	case "hermes":
-		notifyCfg = cfg.Notify.Hermes
-	case "openclaw":
-		notifyCfg = cfg.Notify.OpenClaw
+	notifyCfg := cfg.Notify.ByID(msg.Agent)
+	if notifyCfg == nil {
+		notifyCfg = &cfg.Notify.ClaudeCode
 	}
 
 	if !contains(notifyCfg.Events, msg.Event) {
@@ -348,24 +333,9 @@ func buildRemoteSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 // buildRemoteSenders directly and therefore never includes system delivery.
 func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 	legacy := cfg
-	notifyCfg := cfg.Notify.ClaudeCode
-	switch msg.Agent {
-	case "codex":
-		notifyCfg = cfg.Notify.Codex
-	case "zcode":
-		notifyCfg = cfg.Notify.ZCode
-	case "grok":
-		notifyCfg = cfg.Notify.Grok
-	case "droid":
-		notifyCfg = cfg.Notify.Droid
-	case "opencode":
-		notifyCfg = cfg.Notify.OpenCode
-	case "workbuddy":
-		notifyCfg = cfg.Notify.WorkBuddy
-	case "hermes":
-		notifyCfg = cfg.Notify.Hermes
-	case "openclaw":
-		notifyCfg = cfg.Notify.OpenClaw
+	notifyCfg := cfg.Notify.ByID(msg.Agent)
+	if notifyCfg == nil {
+		notifyCfg = &cfg.Notify.ClaudeCode
 	}
 	legacyFeishuURL := ""
 	if notifyCfg.Channels.Feishu.Enabled {
@@ -384,24 +354,9 @@ func buildSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 }
 
 func buildSystemSender(cfg config.Config, msg notify.Message) notify.Sender {
-	notifyCfg := cfg.Notify.ClaudeCode
-	switch msg.Agent {
-	case "codex":
-		notifyCfg = cfg.Notify.Codex
-	case "zcode":
-		notifyCfg = cfg.Notify.ZCode
-	case "grok":
-		notifyCfg = cfg.Notify.Grok
-	case "droid":
-		notifyCfg = cfg.Notify.Droid
-	case "opencode":
-		notifyCfg = cfg.Notify.OpenCode
-	case "workbuddy":
-		notifyCfg = cfg.Notify.WorkBuddy
-	case "hermes":
-		notifyCfg = cfg.Notify.Hermes
-	case "openclaw":
-		notifyCfg = cfg.Notify.OpenClaw
+	notifyCfg := cfg.Notify.ByID(msg.Agent)
+	if notifyCfg == nil {
+		notifyCfg = &cfg.Notify.ClaudeCode
 	}
 	if !contains(notifyCfg.Events, msg.Event) || !notifyCfg.Channels.System.Enabled {
 		return nil

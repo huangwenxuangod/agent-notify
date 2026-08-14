@@ -429,3 +429,15 @@ func TestNotifyConfigAllCoversEveryAgent(t *testing.T) {
 		t.Fatalf("NotifyConfig.All() 返回 %d 个 agent，但 NotifyConfig 有 %d 个字段；新增 agent 后请同步 All()", got, want)
 	}
 }
+
+func TestNotifyConfigByIDResolvesEveryRegisteredAgent(t *testing.T) {
+	cfg := Default()
+	for _, id := range []string{"claude_code", "codex", "zcode", "grok", "droid", "opencode", "workbuddy", "hermes", "openclaw"} {
+		if cfg.Notify.ByID(id) == nil {
+			t.Fatalf("Notify.ByID(%q) returned nil", id)
+		}
+	}
+	if cfg.Notify.ByID("unknown") != nil {
+		t.Fatal("Notify.ByID(unknown) should return nil")
+	}
+}

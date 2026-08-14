@@ -69,6 +69,33 @@ type NotifyConfig struct {
 	OpenClaw   AgentNotifyConfig `yaml:"openclaw"`
 }
 
+// ByID returns the notification settings for a registered agent. Keeping this
+// mapping here prevents dispatch and desktop setup from drifting apart.
+func (n *NotifyConfig) ByID(id string) *AgentNotifyConfig {
+	switch id {
+	case "claude_code":
+		return &n.ClaudeCode
+	case "codex":
+		return &n.Codex
+	case "zcode":
+		return &n.ZCode
+	case "grok":
+		return &n.Grok
+	case "droid":
+		return &n.Droid
+	case "opencode":
+		return &n.OpenCode
+	case "workbuddy":
+		return &n.WorkBuddy
+	case "hermes":
+		return &n.Hermes
+	case "openclaw":
+		return &n.OpenClaw
+	default:
+		return nil
+	}
+}
+
 // All 按固定顺序返回全部 agent 的通知配置，供只读遍历使用。
 //
 // 新增 agent 时唯一需要同步的枚举点：调用方（如 freeze 解析「已配置的远程渠道」）

@@ -44,10 +44,17 @@ desktop() {
   cp "$ROOT_DIR/cmd/agent-notify-desktop/build/darwin/AgentNotify.icns" "$contents/Resources/AgentNotify.icns"
   codesign --force --deep --sign - "$app_path"
   osascript -e 'tell application "Agent Notify" to quit' 2>/dev/null || true
+  # Hide-on-close is the normal runtime mode, so AppleScript quit may only
+  # hide the window. Stop the exact old executable before replacing its memory.
+  pkill -TERM -f -- "$executable" 2>/dev/null || true
   for _ in 1 2 3 4 5; do
     pgrep -f "$executable" >/dev/null || break
     sleep 1
   done
+  if pgrep -f "$executable" >/dev/null; then
+    pkill -KILL -f -- "$executable" 2>/dev/null || true
+    sleep 1
+  fi
   open -gj "$app_path" --args --show
 }
 
