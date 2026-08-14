@@ -24,27 +24,15 @@ type hookCleanupTarget struct {
 // 扫 user + 当前目录的 project。Uninstall 对不存在的文件是 no-op,
 // 所以多扫一个位置没有代价。
 func hookCleanupTargets(cfg config.Config, recorded bool) []hookCleanupTarget {
-	specs := []struct {
-		integration agentintegrations.Integration
-		agent       config.AgentTargetConfig
-	}{
-		{agentintegrations.NewClaudeIntegration(), cfg.Agent.ClaudeCode},
-		{agentintegrations.NewCodexIntegration(), cfg.Agent.Codex},
-		{agentintegrations.NewZcodeIntegration(), cfg.Agent.ZCode},
-		{agentintegrations.NewGrokIntegration(), cfg.Agent.Grok},
-		{agentintegrations.NewDroidIntegration(), cfg.Agent.Droid},
-		{agentintegrations.NewOpenCodeIntegration(), cfg.Agent.OpenCode},
-		{agentintegrations.NewWorkBuddyIntegration(), cfg.Agent.WorkBuddy},
-	}
-
-	targets := make([]hookCleanupTarget, 0, len(specs))
-	for _, spec := range specs {
+	descriptors := agentintegrations.All()
+	targets := make([]hookCleanupTarget, 0, len(descriptors))
+	for _, descriptor := range descriptors {
 		var paths []string
 		if recorded {
-			paths = append(paths, spec.agent.InstalledPaths...)
+			paths = append(paths, descriptor.Target(&cfg).InstalledPaths...)
 		}
 		for _, scope := range []string{"user", "project"} {
-			p, err := spec.integration.SettingsPath(scope)
+			p, err := descriptor.Integration.SettingsPath(scope)
 			if err != nil {
 				continue
 			}
@@ -52,7 +40,7 @@ func hookCleanupTargets(cfg config.Config, recorded bool) []hookCleanupTarget {
 				paths = append(paths, p)
 			}
 		}
-		targets = append(targets, hookCleanupTarget{integration: spec.integration, paths: paths})
+		targets = append(targets, hookCleanupTarget{integration: descriptor.Integration, paths: paths})
 	}
 	return targets
 }

@@ -571,7 +571,8 @@ func (a *App) watchCodexDesktop(ctx context.Context) {
 	if err := codexmonitor.Watch(ctx, path, func(event codexmonitor.Event) {
 		msg := notify.Message{
 			Agent: "codex", Event: event.Event, SessionID: event.SessionID,
-			Title: notify.FormatTitle("codex", event.Event), Body: event.Body, Origin: "desktop_monitor",
+			TurnID: event.TurnID,
+			Title:  notify.FormatTitle("codex", event.Event), Body: event.Body, Origin: "desktop_monitor",
 		}
 		a.dispatchDesktopMessage(msg)
 	}); err != nil {
@@ -652,6 +653,18 @@ func desktopStartsHidden(args []string) bool {
 }
 
 func main() {
+	statePath, err := config.StatePath()
+	if err != nil {
+		log.Printf("resolve desktop instance lock: %v", err)
+		return
+	}
+	instanceLock := acquireDesktopInstance(desktopInstanceLockPath(statePath))
+	if instanceLock == nil {
+		log.Printf("another Agent Notify desktop instance is already running")
+		return
+	}
+	defer instanceLock.Release()
+
 	app, err := NewApp()
 	if err != nil {
 		panic(err)

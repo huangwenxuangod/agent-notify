@@ -83,6 +83,57 @@ func TestDispatchSuppressesWorkBuddyMonitorAfterNativeHook(t *testing.T) {
 	}
 }
 
+func TestDispatchSuppressesCodexMonitorAfterNativeHookByTurnID(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_BRIDGE_URL", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN_FILE", filepath.Join(t.TempDir(), "missing-token"))
+	root := t.TempDir()
+	statePath := filepath.Join(root, "state.json")
+	logPath := filepath.Join(root, "agent-notify.log")
+	cfg := config.Default()
+	native := notify.Message{Agent: "codex", Event: "run_completed", SessionID: "s1", TurnID: "turn-1", Body: "native", Origin: "native_hook"}
+	monitor := notify.Message{Agent: "codex", Event: "run_completed", SessionID: "s1", TurnID: "turn-1", Body: "desktop final answer", Origin: "desktop_monitor"}
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, native); err != nil {
+		t.Fatal(err)
+	}
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, monitor); err != nil {
+		t.Fatal(err)
+	}
+	records, err := state.NewEventJournal(state.EventJournalPath(statePath), 1<<20).List(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[1].Result != "deduplicated" {
+		t.Fatalf("records = %#v, want native event followed by a deduplicated monitor event", records)
+	}
+}
+
+func TestDispatchSuppressesCodexMonitorAfterNativeHookBySessionWithoutTurnID(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_BRIDGE_URL", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN_FILE", filepath.Join(t.TempDir(), "missing-token"))
+	root := t.TempDir()
+	statePath := filepath.Join(root, "state.json")
+	logPath := filepath.Join(root, "agent-notify.log")
+	cfg := config.Default()
+	sessionID := "019fd5a7-3881-7d71-9c98-5b3b165e97ca"
+	native := notify.Message{Agent: "codex", Event: "run_completed", SessionID: sessionID, Body: "hook summary", Origin: "native_hook"}
+	monitor := notify.Message{Agent: "codex", Event: "run_completed", SessionID: sessionID, Body: "desktop final answer", Origin: "desktop_monitor"}
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, native); err != nil {
+		t.Fatal(err)
+	}
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, monitor); err != nil {
+		t.Fatal(err)
+	}
+	records, err := state.NewEventJournal(state.EventJournalPath(statePath), 1<<20).List(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[1].Result != "deduplicated" {
+		t.Fatalf("records = %#v, want native delivery then deduplicated monitor fallback", records)
+	}
+}
+
 func TestDispatchRecordsPartialWhenOneRemoteChannelSucceeds(t *testing.T) {
 	result := deliveryResult(&notify.DeliveryError{Successful: true, Details: []string{"ntfy: down"}})
 	if result != "partial" {

@@ -206,6 +206,15 @@ func TestDedupeKeyDistinguishesContent(t *testing.T) {
 	}
 }
 
+func TestDedupeKeyUsesTurnIdentityBeforeContent(t *testing.T) {
+	base := Message{Agent: "codex", Event: "run_completed", SessionID: "s1", TurnID: "turn-1", Title: "A", Body: "done"}
+	differentBody := base
+	differentBody.Body = "same turn, richer final text"
+	if dedupeKey(base, "system", 100) != dedupeKey(differentBody, "system", 100) {
+		t.Fatal("same turn must deduplicate even when the body changes")
+	}
+}
+
 func TestDedupeKeyEmptySessionFallsBackToPPID(t *testing.T) {
 	msg := Message{Agent: "claude", Event: "run_completed", Title: "A", Body: "done"} // empty SessionID
 	if dedupeKey(msg, "system", 111) == dedupeKey(msg, "system", 222) {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hellolib/agent-notify/internal/agentpolicy"
 	"github.com/hellolib/agent-notify/internal/bridgeclient"
 	"github.com/hellolib/agent-notify/internal/config"
 	"github.com/hellolib/agent-notify/internal/linuxfocus"
@@ -27,25 +28,24 @@ func DispatchRemote(ctx context.Context, cfg config.Config, statePath, logPath s
 }
 
 func reserveTerminalSource(store *state.Store, msg notify.Message, origin string, window time.Duration, now time.Time) (bool, error) {
-	if msg.Agent != "workbuddy" || msg.SessionID == "" || origin == "" {
+	if msg.SessionID == "" || origin == "" {
 		return true, nil
 	}
-	if msg.Event != "run_completed" && msg.Event != "run_failed" {
-		return true, nil
-	}
-	otherOrigin := ""
-	switch origin {
-	case "native_hook":
-		otherOrigin = "desktop_monitor"
-	case "desktop_monitor":
-		otherOrigin = "native_hook"
-	default:
+	policy := agentpolicy.For(msg.Agent)
+	if !policy.Applies(msg.Event, origin) {
 		return true, nil
 	}
 	key := func(source string) string {
 		return strings.Join([]string{"terminal-source", msg.Agent, msg.SessionID, msg.Event, source}, "\x00")
 	}
-	return store.ReserveSendUnless(key(origin), []string{key(otherOrigin)}, window, now)
+	conflicts := []string{key(policy.Primary)}
+	if origin == policy.Primary {
+		conflicts = make([]string, 0, len(policy.Fallback))
+		for _, fallback := range policy.Fallback {
+			conflicts = append(conflicts, key(fallback))
+		}
+	}
+	return store.ReserveSendUnless(key(origin), conflicts, window, now)
 }
 
 func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string, msg notify.Message, host bool) error {
@@ -177,7 +177,7 @@ func enqueueRemoteRetry(statePath, logPath string, msg notify.Message, channels 
 	if len(channels) == 0 {
 		return
 	}
-	item := state.RemoteOutboxItem{Agent: msg.Agent, Event: msg.Event, SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title, Body: msg.Body, Channels: channels, LastError: err.Error()}
+	item := state.RemoteOutboxItem{Agent: msg.Agent, Event: msg.Event, SessionID: msg.SessionID, TurnID: msg.TurnID, RunID: msg.RunID, SourceEvent: msg.SourceEvent, Workspace: msg.Workspace, Title: msg.Title, Body: msg.Body, Channels: channels, LastError: err.Error()}
 	if saveErr := state.NewRemoteOutbox(state.RemoteOutboxPath(statePath)).Enqueue(item); saveErr != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("remote retry enqueue error: %v", saveErr))
 	}
@@ -216,7 +216,7 @@ func appendEventRecord(statePath, logPath string, msg notify.Message, result str
 	}
 	record := state.EventRecord{
 		Timestamp: time.Now().UTC(), Agent: msg.Agent, Event: msg.Event,
-		SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title,
+		SessionID: msg.SessionID, TurnID: msg.TurnID, RunID: msg.RunID, SourceEvent: msg.SourceEvent, Workspace: msg.Workspace, Title: msg.Title,
 		Body: msg.Body, Origin: msg.Origin, SourceApp: sourceApp, Result: result,
 	}
 	if err := state.NewEventJournal(state.EventJournalPath(statePath), 5<<20).Append(record); err != nil {

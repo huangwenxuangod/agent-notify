@@ -96,26 +96,6 @@ func NewService(options Options) (*Service, error) {
 	return &Service{options: options, remoteOnly: options.RemoteOnly}, nil
 }
 
-type agentSpec struct {
-	id          string
-	integration agentintegrations.Integration
-	target      func(*config.Config) *config.AgentTargetConfig
-}
-
-func (s *Service) specs(cfg *config.Config) []agentSpec {
-	return []agentSpec{
-		{"claude_code", agentintegrations.NewClaudeIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.ClaudeCode }},
-		{"codex", agentintegrations.NewCodexIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.Codex }},
-		{"zcode", agentintegrations.NewZcodeIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.ZCode }},
-		{"grok", agentintegrations.NewGrokIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.Grok }},
-		{"droid", agentintegrations.NewDroidIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.Droid }},
-		{"opencode", agentintegrations.NewOpenCodeIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.OpenCode }},
-		{"workbuddy", agentintegrations.NewWorkBuddyIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.WorkBuddy }},
-		{"hermes", agentintegrations.NewHermesIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.Hermes }},
-		{"openclaw", agentintegrations.NewOpenClawIntegration(), func(c *config.Config) *config.AgentTargetConfig { return &c.Agent.OpenClaw }},
-	}
-}
-
 func (s *Service) GetConfig() (config.Config, error)  { return config.Load(s.options.ConfigPath) }
 func (s *Service) SaveConfig(cfg config.Config) error { return config.Save(s.options.ConfigPath, cfg) }
 
@@ -141,7 +121,7 @@ func (s *Service) RecordEvent(msg notify.Message, result string) error {
 	}
 	return state.NewEventJournal(state.EventJournalPath(s.options.StatePath), 5<<20).Append(state.EventRecord{
 		Timestamp: time.Now().UTC(), Agent: msg.Agent, Event: msg.Event,
-		SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title,
+		SessionID: msg.SessionID, TurnID: msg.TurnID, RunID: msg.RunID, SourceEvent: msg.SourceEvent, Workspace: msg.Workspace, Title: msg.Title,
 		Body: msg.Body, Origin: msg.Origin, SourceApp: sourceApp, Result: result,
 	})
 }
@@ -152,10 +132,10 @@ func (s *Service) ScanAgents() ([]AgentStatus, error) {
 		return nil, err
 	}
 	statuses := make([]AgentStatus, 0)
-	for _, spec := range s.specs(&cfg) {
-		status := AgentStatus{ID: spec.id, Name: spec.integration.Name(), Installed: spec.integration.DetectInstalled()}
-		userPath, userErr := spec.integration.SettingsPath("user")
-		projectPath, projectErr := spec.integration.SettingsPath("project")
+	for _, descriptor := range agentintegrations.All() {
+		status := AgentStatus{ID: descriptor.ID, Name: descriptor.Name, Installed: descriptor.Integration.DetectInstalled()}
+		userPath, userErr := descriptor.Integration.SettingsPath("user")
+		projectPath, projectErr := descriptor.Integration.SettingsPath("project")
 		if userErr == nil {
 			status.UserSettings = userPath
 		}
@@ -163,11 +143,11 @@ func (s *Service) ScanAgents() ([]AgentStatus, error) {
 			status.ProjectSettings = projectPath
 		}
 		path := userPath
-		if cfgTarget := spec.target(&cfg); cfgTarget.InstallScope == "project" && projectErr == nil {
+		if cfgTarget := descriptor.Target(&cfg); cfgTarget.InstallScope == "project" && projectErr == nil {
 			path = projectPath
 		}
 		if path != "" {
-			status.HookInstalled, err = spec.integration.IsHookInstalled(path)
+			status.HookInstalled, err = descriptor.Integration.IsHookInstalled(path)
 			if err != nil {
 				status.Error = err.Error()
 			}
@@ -195,20 +175,20 @@ func (s *Service) InstallAgents(req SetupRequest) (SetupResult, error) {
 		selected[id] = true
 	}
 	result := SetupResult{}
-	for _, spec := range s.specs(&cfg) {
-		if len(selected) > 0 && !selected[spec.id] {
+	for _, descriptor := range agentintegrations.All() {
+		if len(selected) > 0 && !selected[descriptor.ID] {
 			continue
 		}
-		path, pathErr := spec.integration.SettingsPath(scope)
-		r := AgentResult{ID: spec.id, Path: path}
+		path, pathErr := descriptor.Integration.SettingsPath(scope)
+		r := AgentResult{ID: descriptor.ID, Path: path}
 		if pathErr == nil {
-			pathErr = spec.integration.Install(path, binary)
+			pathErr = descriptor.Integration.Install(path, binary)
 		}
 		if pathErr != nil {
 			r.Error = pathErr.Error()
 		} else {
 			r.Success = true
-			target := spec.target(&cfg)
+			target := descriptor.Target(&cfg)
 			target.Enabled = true
 			target.InstallScope = scope
 			target.InstalledPaths = config.RecordInstalledPath(target.InstalledPaths, path)
@@ -231,20 +211,20 @@ func (s *Service) UninstallAgents(req SetupRequest) (SetupResult, error) {
 		selected[id] = true
 	}
 	result := SetupResult{}
-	for _, spec := range s.specs(&cfg) {
-		if len(selected) > 0 && !selected[spec.id] {
+	for _, descriptor := range agentintegrations.All() {
+		if len(selected) > 0 && !selected[descriptor.ID] {
 			continue
 		}
-		target := spec.target(&cfg)
+		target := descriptor.Target(&cfg)
 		paths := append([]string(nil), target.InstalledPaths...)
 		for _, scope := range []string{"user", "project"} {
-			if path, e := spec.integration.SettingsPath(scope); e == nil && !containsPath(paths, path) {
+			if path, e := descriptor.Integration.SettingsPath(scope); e == nil && !containsPath(paths, path) {
 				paths = append(paths, path)
 			}
 		}
-		r := AgentResult{ID: spec.id, Success: true}
+		r := AgentResult{ID: descriptor.ID, Success: true}
 		for _, path := range paths {
-			if e := spec.integration.Uninstall(path); e != nil {
+			if e := descriptor.Integration.Uninstall(path); e != nil {
 				r.Success = false
 				r.Error = e.Error()
 				break

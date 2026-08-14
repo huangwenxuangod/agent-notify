@@ -7,9 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var rolloutSessionPattern = regexp.MustCompile(`(?i)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
 
 type record struct {
 	Timestamp string `json:"timestamp"`
@@ -162,5 +165,9 @@ func readNew(path string, offset int64, emit func(Event)) (int64, error) {
 
 func sessionID(path string) string {
 	base := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	return strings.TrimPrefix(base, "rollout-")
+	base = strings.TrimPrefix(base, "rollout-")
+	if match := rolloutSessionPattern.FindStringSubmatch(base); len(match) == 2 {
+		return match[1]
+	}
+	return base
 }

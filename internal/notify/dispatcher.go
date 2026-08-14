@@ -77,13 +77,20 @@ func (d *Dispatcher) SendAll(ctx context.Context, msg Message) error {
 	return &DeliveryError{Successful: successful, Details: errs}
 }
 
-// dedupeKey 构造去重键：agent \x00 session \x00 event \x00 contentHash \x00 sender。
-// contentHash 用 fnv-1a-64 对 Title+Body 取哈希，使去重精确到「同一条内容」。
-// SessionID 为空时用 ppid 兜底，避免多实例塌缩到同一键而误吞。
+// dedupeKey 优先使用稳定的 run/turn identity；老事件没有 identity 时，
+// 回退到 session + 内容 hash。SessionID 为空时用 ppid 兜底，避免多实例塌缩。
 func dedupeKey(msg Message, senderName string, ppid int) string {
 	session := msg.SessionID
+	if msg.RunID != "" {
+		session = "run-" + msg.RunID
+	} else if msg.TurnID != "" {
+		session = "turn-" + msg.TurnID
+	}
 	if session == "" {
 		session = "ppid-" + strconv.Itoa(ppid)
+	}
+	if msg.RunID != "" || msg.TurnID != "" {
+		return strings.Join([]string{msg.Agent, session, msg.Event, senderName}, "\x00")
 	}
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(msg.Title))

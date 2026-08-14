@@ -115,3 +115,10 @@ func TestWatchEmitsEachCodexTurnOnlyOnce(t *testing.T) {
 	case <-time.After(time.Second):
 	}
 }
+
+func TestSessionIDNormalizesRolloutFilenameToCodexSessionID(t *testing.T) {
+	path := "/tmp/rollout-2026-08-06T13-58-53-019fd5a7-3881-7d71-9c98-5b3b165e97ca.jsonl"
+	if got, want := sessionID(path), "019fd5a7-3881-7d71-9c98-5b3b165e97ca"; got != want {
+		t.Fatalf("sessionID() = %q, want %q", got, want)
+	}
+}

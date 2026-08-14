@@ -1,6 +1,9 @@
 package cli
 
-import "github.com/hellolib/agent-notify/internal/config"
+import (
+	"github.com/hellolib/agent-notify/internal/agentintegrations"
+	"github.com/hellolib/agent-notify/internal/config"
+)
 
 // applyChannelToAgents updates a notification channel across agents.
 //
@@ -13,10 +16,7 @@ import "github.com/hellolib/agent-notify/internal/config"
 // If no agent is enabled yet, credentials are still stored everywhere but the
 // channel stays disabled until agent setup selects it.
 func applyChannelToAgents(cfg *config.Config, apply func(agentEnabled bool, notify *config.AgentNotifyConfig)) {
-	apply(cfg.Agent.ClaudeCode.Enabled, &cfg.Notify.ClaudeCode)
-	apply(cfg.Agent.Codex.Enabled, &cfg.Notify.Codex)
-	apply(cfg.Agent.ZCode.Enabled, &cfg.Notify.ZCode)
-	apply(cfg.Agent.Grok.Enabled, &cfg.Notify.Grok)
-	apply(cfg.Agent.Droid.Enabled, &cfg.Notify.Droid)
-	apply(cfg.Agent.OpenCode.Enabled, &cfg.Notify.OpenCode)
+	for _, descriptor := range agentintegrations.All() {
+		apply(descriptor.Target(cfg).Enabled, descriptor.Notify(cfg))
+	}
 }

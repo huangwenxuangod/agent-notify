@@ -15,17 +15,20 @@ import (
 
 // EventRecord is deliberately independent from notify.Message to avoid a package cycle.
 type EventRecord struct {
-	ID        string    `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	Agent     string    `json:"agent"`
-	Event     string    `json:"event"`
-	SessionID string    `json:"session_id,omitempty"`
-	Workspace string    `json:"workspace,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	Body      string    `json:"body,omitempty"`
-	Origin    string    `json:"origin,omitempty"`
-	SourceApp string    `json:"source_app,omitempty"`
-	Result    string    `json:"result"`
+	ID          string    `json:"id"`
+	Timestamp   time.Time `json:"timestamp"`
+	Agent       string    `json:"agent"`
+	Event       string    `json:"event"`
+	SessionID   string    `json:"session_id,omitempty"`
+	TurnID      string    `json:"turn_id,omitempty"`
+	RunID       string    `json:"run_id,omitempty"`
+	SourceEvent string    `json:"source_event,omitempty"`
+	Workspace   string    `json:"workspace,omitempty"`
+	Title       string    `json:"title,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	Origin      string    `json:"origin,omitempty"`
+	SourceApp   string    `json:"source_app,omitempty"`
+	Result      string    `json:"result"`
 }
 
 type EventJournal struct {

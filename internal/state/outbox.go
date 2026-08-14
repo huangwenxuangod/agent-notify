@@ -14,17 +14,20 @@ import (
 // RemoteOutboxItem is a host-local retry record. It deliberately stores only
 // the normalized event fields so the state package stays independent of notify.
 type RemoteOutboxItem struct {
-	ID        string    `json:"id"`
-	Agent     string    `json:"agent"`
-	Event     string    `json:"event"`
-	SessionID string    `json:"session_id,omitempty"`
-	Workspace string    `json:"workspace,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	Body      string    `json:"body,omitempty"`
-	Channels  []string  `json:"channels"`
-	Attempts  int       `json:"attempts"`
-	NextTry   time.Time `json:"next_try"`
-	LastError string    `json:"last_error,omitempty"`
+	ID          string    `json:"id"`
+	Agent       string    `json:"agent"`
+	Event       string    `json:"event"`
+	SessionID   string    `json:"session_id,omitempty"`
+	TurnID      string    `json:"turn_id,omitempty"`
+	RunID       string    `json:"run_id,omitempty"`
+	SourceEvent string    `json:"source_event,omitempty"`
+	Workspace   string    `json:"workspace,omitempty"`
+	Title       string    `json:"title,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	Channels    []string  `json:"channels"`
+	Attempts    int       `json:"attempts"`
+	NextTry     time.Time `json:"next_try"`
+	LastError   string    `json:"last_error,omitempty"`
 }
 
 type RemoteOutbox struct{ path string }

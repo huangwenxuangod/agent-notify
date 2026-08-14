@@ -76,6 +76,9 @@ func TestParseStop(t *testing.T) {
 	if msg.Event != "run_completed" {
 		t.Fatalf("Event = %q, want run_completed", msg.Event)
 	}
+	if msg.TurnID != "turn-2" {
+		t.Fatalf("TurnID = %q, want turn-2", msg.TurnID)
+	}
 	// last_assistant_message 非空时应作为 Body
 	if !strings.Contains(msg.Body, "cargo build") {
 		t.Fatalf("Body = %q, want last_assistant_message content", msg.Body)

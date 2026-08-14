@@ -3,14 +3,17 @@ package notify
 import "context"
 
 type Message struct {
-	Agent     string
-	Event     string
-	SessionID string
-	Workspace string
-	Title     string
-	Body      string
-	Origin    string
-	SourceApp SourceApp
+	Agent       string
+	Event       string
+	SessionID   string
+	TurnID      string
+	RunID       string
+	SourceEvent string
+	Workspace   string
+	Title       string
+	Body        string
+	Origin      string
+	SourceApp   SourceApp
 	// FocusWindowID 是 Linux 点击聚焦的目标 X11 窗口 ID（十进制字符串），
 	// 由 dispatch 依据 SessionStart 缓存填充；为空则回退按进程树定位。仅 Linux 使用。
 	FocusWindowID string
