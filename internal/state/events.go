@@ -23,6 +23,7 @@ type EventRecord struct {
 	Workspace string    `json:"workspace,omitempty"`
 	Title     string    `json:"title,omitempty"`
 	Body      string    `json:"body,omitempty"`
+	Origin    string    `json:"origin,omitempty"`
 	SourceApp string    `json:"source_app,omitempty"`
 	Result    string    `json:"result"`
 }

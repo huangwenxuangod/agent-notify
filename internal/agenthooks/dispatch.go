@@ -26,7 +26,32 @@ func DispatchRemote(ctx context.Context, cfg config.Config, statePath, logPath s
 	return dispatch(ctx, cfg, statePath, logPath, msg, false)
 }
 
+func reserveTerminalSource(store *state.Store, msg notify.Message, origin string, window time.Duration, now time.Time) (bool, error) {
+	if msg.Agent != "workbuddy" || msg.SessionID == "" || origin == "" {
+		return true, nil
+	}
+	if msg.Event != "run_completed" && msg.Event != "run_failed" {
+		return true, nil
+	}
+	otherOrigin := ""
+	switch origin {
+	case "native_hook":
+		otherOrigin = "desktop_monitor"
+	case "desktop_monitor":
+		otherOrigin = "native_hook"
+	default:
+		return true, nil
+	}
+	key := func(source string) string {
+		return strings.Join([]string{"terminal-source", msg.Agent, msg.SessionID, msg.Event, source}, "\x00")
+	}
+	return store.ReserveSendUnless(key(origin), []string{key(otherOrigin)}, window, now)
+}
+
 func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string, msg notify.Message, host bool) error {
+	if msg.Origin == "" {
+		msg.Origin = "native_hook"
+	}
 	// hook 进程由终端 / IDE 启动，此处能从继承的环境变量识别宿主应用
 	if host {
 		msg.SourceApp = notify.DetectSourceApp()
@@ -51,6 +76,13 @@ func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string,
 	}
 
 	store := state.NewStore(statePath)
+	if allowed, reservationErr := reserveTerminalSource(store, msg, msg.Origin, time.Duration(cfg.Behavior.DedupeSeconds)*time.Second, time.Now()); reservationErr != nil {
+		_ = state.AppendLog(logPath, fmt.Sprintf("terminal source reservation error event=%s err=%v", msg.Event, reservationErr))
+	} else if !allowed {
+		appendEventRecord(statePath, logPath, msg, "deduplicated")
+		recordBridgeEvent(ctx, host, logPath, msg, "deduplicated")
+		return nil
+	}
 	timeout := time.Duration(cfg.Behavior.SendTimeoutSeconds) * time.Second
 	systemDelivered := false
 	if host {
@@ -185,7 +217,7 @@ func appendEventRecord(statePath, logPath string, msg notify.Message, result str
 	record := state.EventRecord{
 		Timestamp: time.Now().UTC(), Agent: msg.Agent, Event: msg.Event,
 		SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title,
-		Body: msg.Body, SourceApp: sourceApp, Result: result,
+		Body: msg.Body, Origin: msg.Origin, SourceApp: sourceApp, Result: result,
 	}
 	if err := state.NewEventJournal(state.EventJournalPath(statePath), 5<<20).Append(record); err != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("event journal append error event=%s err=%v", msg.Event, err))

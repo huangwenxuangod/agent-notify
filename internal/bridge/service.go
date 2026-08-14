@@ -142,7 +142,7 @@ func (s *Service) RecordEvent(msg notify.Message, result string) error {
 	return state.NewEventJournal(state.EventJournalPath(s.options.StatePath), 5<<20).Append(state.EventRecord{
 		Timestamp: time.Now().UTC(), Agent: msg.Agent, Event: msg.Event,
 		SessionID: msg.SessionID, Workspace: msg.Workspace, Title: msg.Title,
-		Body: msg.Body, SourceApp: sourceApp, Result: result,
+		Body: msg.Body, Origin: msg.Origin, SourceApp: sourceApp, Result: result,
 	})
 }
 

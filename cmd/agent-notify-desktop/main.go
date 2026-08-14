@@ -571,7 +571,7 @@ func (a *App) watchCodexDesktop(ctx context.Context) {
 	if err := codexmonitor.Watch(ctx, path, func(event codexmonitor.Event) {
 		msg := notify.Message{
 			Agent: "codex", Event: event.Event, SessionID: event.SessionID,
-			Title: notify.FormatTitle("codex", event.Event), Body: event.Body,
+			Title: notify.FormatTitle("codex", event.Event), Body: event.Body, Origin: "desktop_monitor",
 		}
 		a.dispatchDesktopMessage(msg)
 	}); err != nil {
@@ -597,7 +597,7 @@ func (a *App) watchWorkBuddyDesktop(ctx context.Context) {
 		}
 		msg := notify.Message{
 			Agent: "workbuddy", Event: event.Event, SessionID: event.SessionID,
-			Workspace: event.Workspace, Title: notify.FormatTitle("workbuddy", event.Event), Body: event.Body,
+			Workspace: event.Workspace, Title: notify.FormatTitle("workbuddy", event.Event), Body: event.Body, Origin: "desktop_monitor",
 		}
 		a.dispatchDesktopMessage(msg)
 	}); err != nil && !os.IsNotExist(err) {

@@ -80,6 +80,37 @@ func (s *Store) ReserveSend(key string, window time.Duration, now time.Time) (bo
 	return true, nil
 }
 
+// ReserveSendUnless reserves key only when none of the conflicting keys has
+// been sent recently. It is used when two distinct adapters can observe the
+// same terminal event but repeated events from one adapter remain valid.
+func (s *Store) ReserveSendUnless(key string, conflicts []string, window time.Duration, now time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lock := common.AcquireFileLock(s.lockPath(), lockTimeout)
+	defer lock.Release()
+
+	st, err := s.load()
+	if err != nil {
+		return true, err
+	}
+	for _, conflict := range conflicts {
+		if last, ok := st.LastSent[conflict]; ok && now.Sub(last) < window {
+			return false, nil
+		}
+	}
+	for storedKey, sentAt := range st.LastSent {
+		if now.Sub(sentAt) > window {
+			delete(st.LastSent, storedKey)
+		}
+	}
+	st.LastSent[key] = now
+	if err := s.save(st); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
 // MarkSent 确认发送完成:刷新 key 的时间戳并顺带 GC 过期条目。
 // 剔除超出窗口的历史条目:age > window 的键此后永远判定为「可发送」,
 // 删除与保留对去重结果等价(无损),却能把 map/文件体积限制在最近一个窗口内,

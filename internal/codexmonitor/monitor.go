@@ -18,6 +18,7 @@ type record struct {
 		Type             string `json:"type"`
 		Message          string `json:"message"`
 		Phase            string `json:"phase"`
+		TurnID           string `json:"turn_id"`
 		LastAgentMessage string `json:"last_agent_message"`
 	} `json:"payload"`
 	Error *struct {
@@ -35,6 +36,7 @@ func ParseFinalAnswer(line string) (string, bool) {
 
 type Event struct {
 	SessionID string
+	TurnID    string
 	Event     string
 	Body      string
 }
@@ -52,10 +54,10 @@ func ParseJournalEvent(line string) (Event, bool) {
 	}
 	if value.Error != nil {
 		message := strings.TrimSpace(value.Error.Message)
-		return Event{Event: "run_failed", Body: message}, message != ""
+		return Event{TurnID: value.Payload.TurnID, Event: "run_failed", Body: message}, message != ""
 	}
 	message := strings.TrimSpace(value.Payload.LastAgentMessage)
-	return Event{Event: "run_completed", Body: message}, message != ""
+	return Event{TurnID: value.Payload.TurnID, Event: "run_completed", Body: message}, message != ""
 }
 
 func DefaultSessionsPath() (string, error) {
@@ -70,6 +72,7 @@ func DefaultSessionsPath() (string, error) {
 // appended final answers. Codex Desktop does not invoke CLI hooks for UI turns.
 func Watch(ctx context.Context, root string, emit func(Event)) error {
 	positions := make(map[string]int64)
+	emittedTurns := make(map[string]bool)
 	initial, err := sessionFiles(root)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -88,6 +91,13 @@ func Watch(ctx context.Context, root string, emit func(Event)) error {
 			position := positions[path]
 			next, err := readNew(path, position, func(event Event) {
 				event.SessionID = sessionID(path)
+				if event.TurnID != "" {
+					key := event.SessionID + "\x00" + event.TurnID
+					if emittedTurns[key] {
+						return
+					}
+					emittedTurns[key] = true
+				}
 				emit(event)
 			})
 			if err == nil {
@@ -125,7 +135,7 @@ func readNew(path string, offset int64, emit func(Event)) (int64, error) {
 		return offset, err
 	}
 	if offset > info.Size() {
-		offset = 0
+		return info.Size(), nil
 	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return offset, err

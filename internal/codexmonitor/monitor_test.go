@@ -1,10 +1,12 @@
 package codexmonitor
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseFinalAnswerIgnoresIntermediateAgentMessage(t *testing.T) {
@@ -64,5 +66,52 @@ func TestReadNewContinuesPastLargeJournalRecord(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0] != "Completed after large output" {
 		t.Fatalf("messages = %#v", messages)
+	}
+}
+
+func TestReadNewSkipsExistingJournalContentAfterTruncation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout-truncated.jsonl")
+	line := `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"historical task"}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var events []Event
+	next, err := readNew(path, int64(len(line)+1), func(event Event) { events = append(events, event) })
+	if err != nil {
+		t.Fatalf("readNew() error = %v", err)
+	}
+	if next != int64(len(line)) {
+		t.Fatalf("next = %d, want %d", next, len(line))
+	}
+	if len(events) != 0 {
+		t.Fatalf("events = %#v, want no replay after truncation", events)
+	}
+}
+
+func TestWatchEmitsEachCodexTurnOnlyOnce(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "rollout-turns.jsonl")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan Event, 2)
+	go func() { _ = Watch(ctx, root, func(event Event) { events <- event }) }()
+	time.Sleep(100 * time.Millisecond)
+	line := `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"done"}}` + "\n"
+	if err := os.WriteFile(path, []byte(line+line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-events:
+	case <-time.After(2 * time.Second):
+		t.Fatal("watch did not emit the first terminal event")
+	}
+	select {
+	case duplicate := <-events:
+		t.Fatalf("duplicate terminal event = %#v", duplicate)
+	case <-time.After(time.Second):
 	}
 }

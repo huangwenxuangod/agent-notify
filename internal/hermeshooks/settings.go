@@ -23,7 +23,9 @@ func Install(dir, binary string) error {
 		"description: Forward Hermes Gateway lifecycle events to Agent Notify\n" +
 		"events:\n" +
 		"  - agent:end\n" +
-		"  - agent:start\n"
+		"  - agent:start\n" +
+		"  - agent:error\n" +
+		"  - tool:error\n"
 	if err := common.WriteFileAtomic(filepath.Join(dir, "HOOK.yaml"), []byte(manifest), 0o600); err != nil {
 		return err
 	}
@@ -52,8 +54,19 @@ func IsInstalled(dir string) (bool, error) {
 	if !strings.Contains(string(data), hookMarker) {
 		return false, nil
 	}
-	_, err = os.Stat(filepath.Join(dir, "HOOK.yaml"))
-	return err == nil, err
+	manifest, err := os.ReadFile(filepath.Join(dir, "HOOK.yaml"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, event := range []string{"agent:end", "agent:error", "tool:error"} {
+		if !strings.Contains(string(manifest), event) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func Uninstall(dir string) error {

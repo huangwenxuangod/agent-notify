@@ -42,7 +42,7 @@ func TestDispatchAppendsNonSessionEventToJournal(t *testing.T) {
 	statePath := filepath.Join(root, "state.json")
 	logPath := filepath.Join(root, "agent-notify.log")
 	cfg := config.Default()
-	if err := Dispatch(context.Background(), cfg, statePath, logPath, notify.Message{Agent: "codex", Event: "run_completed", SessionID: "s1", Body: "done"}); err != nil {
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, notify.Message{Agent: "codex", Event: "run_completed", SessionID: "s1", Body: "done", Origin: "desktop_monitor"}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(state.EventJournalPath(statePath))
@@ -53,8 +53,33 @@ func TestDispatchAppendsNonSessionEventToJournal(t *testing.T) {
 	if err := json.Unmarshal(data[:len(data)-1], &record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Agent != "codex" || record.Event != "run_completed" || record.Result != "no_sender" {
+	if record.Agent != "codex" || record.Event != "run_completed" || record.Origin != "desktop_monitor" || record.Result != "no_sender" {
 		t.Fatalf("record = %#v", record)
+	}
+}
+
+func TestDispatchSuppressesWorkBuddyMonitorAfterNativeHook(t *testing.T) {
+	t.Setenv("AGENT_NOTIFY_BRIDGE_URL", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN", "")
+	t.Setenv("AGENT_NOTIFY_BRIDGE_TOKEN_FILE", filepath.Join(t.TempDir(), "missing-token"))
+	root := t.TempDir()
+	statePath := filepath.Join(root, "state.json")
+	logPath := filepath.Join(root, "agent-notify.log")
+	cfg := config.Default()
+	native := notify.Message{Agent: "workbuddy", Event: "run_completed", SessionID: "s1", Body: "native", Origin: "native_hook"}
+	monitor := notify.Message{Agent: "workbuddy", Event: "run_completed", SessionID: "s1", Body: "monitor", Origin: "desktop_monitor"}
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, native); err != nil {
+		t.Fatal(err)
+	}
+	if err := Dispatch(context.Background(), cfg, statePath, logPath, monitor); err != nil {
+		t.Fatal(err)
+	}
+	records, err := state.NewEventJournal(state.EventJournalPath(statePath), 1<<20).List(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].Result != "no_sender" || records[1].Result != "deduplicated" {
+		t.Fatalf("records = %#v, want native delivery then deduplicated monitor fallback", records)
 	}
 }
 
@@ -62,6 +87,19 @@ func TestDispatchRecordsPartialWhenOneRemoteChannelSucceeds(t *testing.T) {
 	result := deliveryResult(&notify.DeliveryError{Successful: true, Details: []string{"ntfy: down"}})
 	if result != "partial" {
 		t.Fatalf("deliveryResult() = %q, want partial", result)
+	}
+}
+
+func TestReserveTerminalSourceSuppressesWorkBuddyFallbackAfterNativeHook(t *testing.T) {
+	store := state.NewStore(filepath.Join(t.TempDir(), "state.json"))
+	now := time.Now()
+	first, err := reserveTerminalSource(store, notify.Message{Agent: "workbuddy", Event: "run_completed", SessionID: "s1"}, "native_hook", time.Minute, now)
+	if err != nil || !first {
+		t.Fatalf("native hook reservation = (%v, %v), want true, nil", first, err)
+	}
+	second, err := reserveTerminalSource(store, notify.Message{Agent: "workbuddy", Event: "run_completed", SessionID: "s1"}, "desktop_monitor", time.Minute, now.Add(time.Second))
+	if err != nil || second {
+		t.Fatalf("desktop fallback reservation = (%v, %v), want false, nil", second, err)
 	}
 }
 
