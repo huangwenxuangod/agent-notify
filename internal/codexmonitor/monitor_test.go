@@ -7,14 +7,10 @@ import (
 	"testing"
 )
 
-func TestParseFinalAnswer(t *testing.T) {
+func TestParseFinalAnswerIgnoresIntermediateAgentMessage(t *testing.T) {
 	line := `{"timestamp":"2026-08-12T02:07:42.142Z","type":"event_msg","payload":{"type":"agent_message","message":"Task complete","phase":"final_answer"}}`
-	message, ok := ParseFinalAnswer(line)
-	if !ok {
-		t.Fatal("final answer was not detected")
-	}
-	if message != "Task complete" {
-		t.Fatalf("message = %q", message)
+	if _, ok := ParseFinalAnswer(line); ok {
+		t.Fatal("intermediate agent_message must not produce a completion")
 	}
 }
 
@@ -39,10 +35,21 @@ func TestParseJournalEventDetectsCodexTaskError(t *testing.T) {
 	}
 }
 
+func TestParseJournalEventDetectsCodexTaskComplete(t *testing.T) {
+	line := `{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Task complete"}}`
+	event, ok := ParseJournalEvent(line)
+	if !ok {
+		t.Fatal("Codex task completion was not detected")
+	}
+	if event.Event != "run_completed" || event.Body != "Task complete" {
+		t.Fatalf("event = %#v, want completed task", event)
+	}
+}
+
 func TestReadNewContinuesPastLargeJournalRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout-large.jsonl")
 	largeRecord := `{"type":"response_item","payload":{"output":"` + strings.Repeat("x", 128*1024) + `"}}` + "\n"
-	finalAnswer := `{"type":"event_msg","payload":{"type":"agent_message","message":"Completed after large output","phase":"final_answer"}}` + "\n"
+	finalAnswer := `{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Completed after large output"}}` + "\n"
 	if err := os.WriteFile(path, []byte(largeRecord+finalAnswer), 0o600); err != nil {
 		t.Fatal(err)
 	}

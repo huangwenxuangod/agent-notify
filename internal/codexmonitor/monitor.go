@@ -15,9 +15,10 @@ type record struct {
 	Timestamp string `json:"timestamp"`
 	Type      string `json:"type"`
 	Payload   struct {
-		Type    string `json:"type"`
-		Message string `json:"message"`
-		Phase   string `json:"phase"`
+		Type             string `json:"type"`
+		Message          string `json:"message"`
+		Phase            string `json:"phase"`
+		LastAgentMessage string `json:"last_agent_message"`
 	} `json:"payload"`
 	Error *struct {
 		Message string `json:"message"`
@@ -38,23 +39,23 @@ type Event struct {
 	Body      string
 }
 
-// ParseJournalEvent recognizes terminal Codex Desktop outcomes. The desktop UI
-// does not invoke CLI hooks, so final answers and task errors come from its
-// session journal.
+// ParseJournalEvent recognizes terminal Codex Desktop outcomes. Individual
+// agent_message records are intermediate responses; task_complete is the
+// terminal boundary and includes the final assistant message.
 func ParseJournalEvent(line string) (Event, bool) {
 	var value record
 	if json.Unmarshal([]byte(line), &value) != nil || value.Type != "event_msg" {
 		return Event{}, false
 	}
-	if value.Payload.Type == "agent_message" && value.Payload.Phase == "final_answer" {
-		message := strings.TrimSpace(value.Payload.Message)
-		return Event{Event: "run_completed", Body: message}, message != ""
+	if value.Payload.Type != "task_complete" {
+		return Event{}, false
 	}
-	if value.Payload.Type == "task_complete" && value.Error != nil {
+	if value.Error != nil {
 		message := strings.TrimSpace(value.Error.Message)
 		return Event{Event: "run_failed", Body: message}, message != ""
 	}
-	return Event{}, false
+	message := strings.TrimSpace(value.Payload.LastAgentMessage)
+	return Event{Event: "run_completed", Body: message}, message != ""
 }
 
 func DefaultSessionsPath() (string, error) {
