@@ -192,12 +192,18 @@ type SlackChannelConfig struct {
 
 // BehaviorConfig holds behavior configuration.
 type BehaviorConfig struct {
-	DedupeSeconds      int    `yaml:"dedupe_seconds"`       // 去重时间窗口（秒）；同一会话、同一内容在此时间内不重复发送，超窗口再次触发则重提醒
-	SendTimeoutSeconds int    `yaml:"send_timeout_seconds"` // 发送超时时间（秒）
-	Locale             string `yaml:"locale"`               // 语言设置，如: zh-CN, en-US
+	DedupeSeconds      int    `yaml:"dedupe_seconds"`                 // 去重时间窗口（秒）；同一会话、同一内容在此时间内不重复发送，超窗口再次触发则重提醒
+	SendTimeoutSeconds int    `yaml:"send_timeout_seconds"`           // 发送超时时间（秒）
+	Locale             string `yaml:"locale"`                         // 语言设置，如: zh-CN, en-US
+	HideWindowOnClose  *bool  `yaml:"hide_window_on_close,omitempty"` // nil 表示兼容旧配置，默认隐藏到菜单栏
+}
+
+func (b BehaviorConfig) ShouldHideWindowOnClose() bool {
+	return b.HideWindowOnClose == nil || *b.HideWindowOnClose
 }
 
 func Default() Config {
+	hideWindowOnClose := true
 	allEvents := []string{"permission_required", "input_required", "run_completed", "run_failed"}
 	// Codex hooks 托管 SessionStart / PermissionRequest / Stop 三个事件。
 	// session_start 仅用于点击聚焦的窗口捕获，不作为通知事件，故不出现在这里。
@@ -318,6 +324,7 @@ func Default() Config {
 			DedupeSeconds:      10,
 			SendTimeoutSeconds: 5,
 			Locale:             "zh-CN",
+			HideWindowOnClose:  &hideWindowOnClose,
 		},
 	}
 }

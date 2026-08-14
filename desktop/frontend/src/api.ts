@@ -24,6 +24,8 @@ declare global { interface Window { go?: { main?: { App?: {
   ResumeNotifications:()=>Promise<void>;
   Autostart:()=>Promise<AutostartStatus>;
   SetAutostart:(enabled:boolean)=>Promise<void>;
+  HideWindowOnClose:()=>Promise<boolean>;
+  SetHideWindowOnClose:(enabled:boolean)=>Promise<void>;
   ClickToFocus:()=>Promise<boolean>;
 	SetClickToFocus:(enabled:boolean)=>Promise<void>;
 	SystemNotifications:()=>Promise<boolean>;
@@ -52,6 +54,8 @@ export const pauseOneHour=()=>call<void>('PauseOneHour');
 export const resumeNotifications=()=>call<void>('ResumeNotifications');
 export const autostart=()=>call<AutostartStatus>('Autostart');
 export const setAutostart=(enabled:boolean)=>call<void>('SetAutostart',enabled);
+export const hideWindowOnClose=()=>call<boolean>('HideWindowOnClose');
+export const setHideWindowOnClose=(enabled:boolean)=>call<void>('SetHideWindowOnClose',enabled);
 export const clickToFocus=()=>call<boolean>('ClickToFocus');
 export const setClickToFocus=(enabled:boolean)=>call<void>('SetClickToFocus',enabled);
 export const systemNotifications=()=>call<boolean>('SystemNotifications');

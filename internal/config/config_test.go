@@ -364,6 +364,20 @@ func TestStarPromptedDefaultsFalseForOldConfig(t *testing.T) {
 	}
 }
 
+func TestBehaviorHideWindowOnClosePersistsExplicitFalse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("behavior:\n  hide_window_on_close: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Behavior.HideWindowOnClose == nil || *cfg.Behavior.HideWindowOnClose {
+		t.Fatalf("HideWindowOnClose = %#v, want explicit false", cfg.Behavior.HideWindowOnClose)
+	}
+}
+
 func TestRecordInstalledPathStoresAbsolutePathAndDedupes(t *testing.T) {
 	// project scope 传进来的是相对路径,必须转成绝对路径才能在别的目录清理
 	got := RecordInstalledPath(nil, filepath.Join(".claude", "settings.json"))

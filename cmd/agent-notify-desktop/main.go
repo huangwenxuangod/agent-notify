@@ -434,6 +434,26 @@ func (a *App) ResumeNotifications() error {
 }
 func (a *App) Autostart() bridge.AutostartStatus { return a.service.AutostartStatus() }
 func (a *App) SetAutostart(enabled bool) error   { return a.service.SetAutostart(enabled) }
+func (a *App) HideWindowOnClose() (bool, error) {
+	cfg, err := a.service.GetConfig()
+	if err != nil {
+		return false, err
+	}
+	return shouldHideWindowOnClose(cfg), nil
+}
+func (a *App) SetHideWindowOnClose(enabled bool) error {
+	cfg, err := a.service.GetConfig()
+	if err != nil {
+		return err
+	}
+	cfg.Behavior.HideWindowOnClose = &enabled
+	return a.SaveConfig(cfg)
+}
+
+func shouldHideWindowOnClose(cfg config.Config) bool {
+	return cfg.Behavior.ShouldHideWindowOnClose()
+}
+
 func (a *App) ClickToFocus() (bool, error) {
 	agents, err := a.service.ScanAgents()
 	if err != nil {
@@ -629,15 +649,22 @@ func (a *App) dispatchDesktopMessage(msg notify.Message) {
 
 func desktopOptions(app *App, frontend fs.FS) *options.App {
 	return &options.App{
-		Title:             "Agent Notify",
-		Width:             980,
-		Height:            700,
-		StartHidden:       desktopStartsHidden(os.Args),
-		HideWindowOnClose: true,
-		OnStartup:         app.startTray,
-		AssetServer:       &assetserver.Options{Assets: frontend},
-		Mac:               &mac.Options{TitleBar: mac.TitleBarHiddenInset()},
-		Bind:              []interface{}{app},
+		Title:       "Agent Notify",
+		Width:       980,
+		Height:      700,
+		StartHidden: desktopStartsHidden(os.Args),
+		OnBeforeClose: func(ctx context.Context) bool {
+			cfg, err := app.service.GetConfig()
+			if err != nil || !shouldHideWindowOnClose(cfg) {
+				return false
+			}
+			runtime.WindowHide(ctx)
+			return true
+		},
+		OnStartup:   app.startTray,
+		AssetServer: &assetserver.Options{Assets: frontend},
+		Mac:         &mac.Options{TitleBar: mac.TitleBarHiddenInset()},
+		Bind:        []interface{}{app},
 	}
 }
 

@@ -32,6 +32,7 @@ import {
   Config,
   HookRuntimeStatus,
   autostart,
+	 hideWindowOnClose,
   autoSetup,
   clickToFocus,
 	 codexHookStatus,
@@ -41,6 +42,7 @@ import {
   sendTestChannel,
 	 testSystemNotification,
   setAutostart,
+	setHideWindowOnClose,
 	setSystemNotifications,
   setClickToFocus,
 	systemNotifications,
@@ -69,6 +71,7 @@ type Provider = {
 type Data = {
   config: Config;
   autostart: AutostartStatus;
+  hideWindowOnClose: boolean;
   clickToFocus: boolean;
 	 codexHook: HookRuntimeStatus;
 };
@@ -261,7 +264,7 @@ function toggleRow(
   return `<div class="setting-row"><div><h2>${title}</h2><p>${description}</p></div><label class="switch ${disabled ? "is-disabled" : ""}"><input type="checkbox" ${attribute} ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}><span></span></label></div>`;
 }
 function generalSettings() {
-  return `${settingHeader("通用", "桌面应用的运行方式。")}<div class="setting-list">${toggleRow("登录时启动", "登录 macOS 后自动运行 Agent Notify。", "data-autostart", data!.autostart.Enabled, !data!.autostart.Supported)}<div class="setting-row static"><div><h2>关闭窗口时隐藏</h2><p>应用继续在菜单栏运行，通知链路不会中断。</p></div>${icon("check")}</div></div>`;
+  return `${settingHeader("通用", "桌面应用的运行方式。")}<div class="setting-list">${toggleRow("登录时启动", "登录 macOS 后自动运行 Agent Notify。", "data-autostart", data!.autostart.Enabled, !data!.autostart.Supported)}${toggleRow("关闭窗口时隐藏", "应用继续在菜单栏运行，通知链路不会中断。", "data-hide-window-on-close", data!.hideWindowOnClose)}</div>`;
 }
 function notificationSettings() {
   const hook = data!.codexHook;
@@ -280,9 +283,10 @@ async function refresh() {
   render();
   try {
     await autoSetup();
-		const [nextConfig, nextAutostart, nextSystemNotifications, nextClickToFocus, nextCodexHook] = await Promise.all([
+		const [nextConfig, nextAutostart, nextHideWindowOnClose, nextSystemNotifications, nextClickToFocus, nextCodexHook] = await Promise.all([
 			config(),
 			autostart(),
+			hideWindowOnClose(),
 			systemNotifications(),
 			clickToFocus(),
 			codexHookStatus(),
@@ -291,6 +295,7 @@ async function refresh() {
 	    data = {
 			config: nextConfig,
 			autostart: nextAutostart,
+			hideWindowOnClose: nextHideWindowOnClose,
 			clickToFocus: nextClickToFocus,
 			codexHook: nextCodexHook,
 	    };
@@ -452,6 +457,20 @@ function bind() {
         const enabled = (event.target as HTMLInputElement).checked;
         await setAutostart(enabled);
         if (data) data.autostart.Enabled = enabled;
+        notice = "通用设置已保存";
+        render();
+      } catch (error) {
+        notice = `保存失败: ${String(error)}`;
+        render();
+      }
+    });
+  app
+    .querySelector<HTMLInputElement>("[data-hide-window-on-close]")
+    ?.addEventListener("change", async (event) => {
+      try {
+        const enabled = (event.target as HTMLInputElement).checked;
+        await setHideWindowOnClose(enabled);
+        if (data) data.hideWindowOnClose = enabled;
         notice = "通用设置已保存";
         render();
       } catch (error) {
