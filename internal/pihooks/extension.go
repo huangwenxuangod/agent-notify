@@ -14,9 +14,6 @@ import { spawn } from "node:child_process";
 const agentNotifyBinary = %s;
 let sessionID = "";
 let activeRun = false;
-let pendingEnd;
-let pendingTimer;
-const completionQuietMs = 5000;
 
 function stringValue(value) {
   return typeof value === "string" ? value : "";
@@ -59,23 +56,6 @@ function forward(eventName, event, ctx) {
   child.unref();
 }
 
-function flushPendingEnd() {
-  if (!pendingEnd) return;
-  const next = pendingEnd;
-  pendingEnd = undefined;
-  if (pendingTimer) {
-    clearTimeout(pendingTimer);
-    pendingTimer = undefined;
-  }
-  forward("agent_end", next.event, next.ctx);
-}
-
-function scheduleAgentEnd(event, ctx) {
-  pendingEnd = { event, ctx };
-  if (pendingTimer) clearTimeout(pendingTimer);
-  pendingTimer = setTimeout(flushPendingEnd, completionQuietMs);
-}
-
 export default function agentNotifyPiExtension(pi) {
   pi.on("session_start", (event, ctx) => {
     const value = event ?? {};
@@ -85,23 +65,21 @@ export default function agentNotifyPiExtension(pi) {
   });
 
   pi.on("agent_start", () => {
-    flushPendingEnd();
     activeRun = true;
   });
 
-  // Pi v0.80.x exposes agent_end before its retry decision to extensions. A
-  // quiet window keeps only the last terminal result without blocking Pi.
+  // agent_end is the stable per-prompt completion event. Forward it
+  // immediately; the detached hook keeps Pi responsive and the dispatcher
+  // handles duplicate signals across adapters.
   pi.on("agent_end", (event, ctx) => {
     activeRun = false;
-    scheduleAgentEnd(event, ctx);
+    forward("agent_end", event, ctx);
   });
 
-  // A normal print-mode exit first flushes its completion. A shutdown while a
-  // run is active is an interruption; session switches/reloads stay silent.
+  // A shutdown while a run is active is an interruption; session
+  // switches/reloads stay silent.
   pi.on("session_shutdown", (event, ctx) => {
-	if (pendingEnd) {
-	  flushPendingEnd();
-	} else if (activeRun && stringValue(event?.reason).toLowerCase() === "quit") {
+	if (activeRun && stringValue(event?.reason).toLowerCase() === "quit") {
       forward("session_shutdown", event, ctx);
     }
   });

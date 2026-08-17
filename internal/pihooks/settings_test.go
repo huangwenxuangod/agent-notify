@@ -44,11 +44,16 @@ func TestUninstallRemovesOnlyManagedExtension(t *testing.T) {
 	}
 }
 
-func TestExtensionCoalescesAgentEndAndOnlyReportsActiveShutdown(t *testing.T) {
+func TestExtensionForwardsAgentEndImmediatelyAndOnlyReportsActiveShutdown(t *testing.T) {
 	source := BuildExtension("/tmp/agent-notify")
-	for _, want := range []string{"pi.on(\"agent_start\"", "setTimeout", "clearTimeout", "flushPendingEnd", "activeRun"} {
+	for _, want := range []string{"pi.on(\"agent_start\"", "pi.on(\"agent_end\"", "activeRun"} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("extension missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"completionQuietMs", "setTimeout", "clearTimeout", "pendingEnd", "flushPendingEnd"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("extension must not delay agent_end with %q", forbidden)
 		}
 	}
 	if strings.Contains(source, "agent_settled") || strings.Contains(source, "will_retry") {
