@@ -167,7 +167,6 @@ func (s *MacOSSender) tryTerminalNotifier(ctx context.Context, msg Message) bool
 		"-subtitle", time.Now().Format("15:04:05"),
 		"-message", s.formatBody(msg),
 		"-sound", "Submarine",
-		"-group", fmt.Sprintf("com.agent-notify.%s", msg.Agent),
 	}
 
 	// 点击通知时激活触发事件的宿主应用（终端 / IDE）。

@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	goruntime "runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,8 +38,9 @@ func assetRoot() (fs.FS, error) {
 }
 
 type App struct {
-	service     *bridge.Service
-	autoSetupMu sync.Mutex
+	service       *bridge.Service
+	autoSetupMu   sync.Mutex
+	quitRequested atomic.Bool
 }
 
 var saveBridgeConfig = bridgeclient.SaveConfig
@@ -433,6 +435,10 @@ func shouldHideWindowOnClose(cfg config.Config) bool {
 	return cfg.Behavior.ShouldHideWindowOnClose()
 }
 
+func shouldPreventWindowClose(cfg config.Config, quitRequested, systemShutdown bool) bool {
+	return shouldHideWindowOnClose(cfg) && !quitRequested && !systemShutdown
+}
+
 func (a *App) ClickToFocus() (bool, error) {
 	agents, err := a.service.ScanAgents()
 	if err != nil {
@@ -519,6 +525,7 @@ func (a *App) startTray(ctx context.Context) {
 		Pause:  func() { _ = a.PauseOneHour() },
 		Resume: func() { _ = a.ResumeNotifications() },
 		Quit: func() {
+			a.quitRequested.Store(true)
 			tray.Quit()
 			runtime.Quit(ctx)
 		},
@@ -634,7 +641,7 @@ func desktopOptions(app *App, frontend fs.FS) *options.App {
 		StartHidden: desktopStartsHidden(os.Args),
 		OnBeforeClose: func(ctx context.Context) bool {
 			cfg, err := app.service.GetConfig()
-			if err != nil || !shouldHideWindowOnClose(cfg) {
+			if err != nil || !shouldPreventWindowClose(cfg, app.quitRequested.Load(), tray.SystemShutdownRequested()) {
 				return false
 			}
 			runtime.WindowHide(ctx)

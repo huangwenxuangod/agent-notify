@@ -34,6 +34,7 @@ type Service struct {
 	workbuddyIntegration agentintegrations.Integration
 	hermesIntegration    agentintegrations.Integration
 	openclawIntegration  agentintegrations.Integration
+	piIntegration        agentintegrations.Integration
 }
 
 // NewService creates a new doctor service.
@@ -48,6 +49,7 @@ func NewService(opts ...Option) *Service {
 		workbuddyIntegration: agentintegrations.NewWorkBuddyIntegration(),
 		hermesIntegration:    agentintegrations.NewHermesIntegration(),
 		openclawIntegration:  agentintegrations.NewOpenClawIntegration(),
+		piIntegration:        agentintegrations.NewPiIntegration(),
 	}
 
 	for _, opt := range opts {
@@ -99,6 +101,9 @@ func WithHermesIntegration(i agentintegrations.Integration) Option {
 }
 func WithOpenClawIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.openclawIntegration = i }
+}
+func WithPiIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.piIntegration = i }
 }
 
 type DiagnosticStatus string
@@ -171,6 +176,8 @@ type DiagnosticsResult struct {
 	HermesHookInstalled        bool
 	OpenClawInstalled          bool
 	OpenClawHookInstalled      bool
+	PiInstalled                bool
+	PiHookInstalled            bool
 	OpenCodeFeishuEnabled      bool
 	OpenCodeSystemEnabled      bool
 	OpenCodeWechatEnabled      bool
@@ -203,6 +210,14 @@ type DiagnosticsResult struct {
 	OpenClawBarkEnabled        bool
 	OpenClawNtfyEnabled        bool
 	OpenClawSlackEnabled       bool
+	PiFeishuEnabled            bool
+	PiSystemEnabled            bool
+	PiWechatEnabled            bool
+	PiWechatWorkEnabled        bool
+	PiDingTalkEnabled          bool
+	PiBarkEnabled              bool
+	PiNtfyEnabled              bool
+	PiSlackEnabled             bool
 	DroidFeishuEnabled         bool
 	DroidSystemEnabled         bool
 	DroidWechatEnabled         bool
@@ -220,6 +235,7 @@ type DiagnosticsResult struct {
 	WorkBuddyIntegrationStatus DiagnosticStatus
 	HermesIntegrationStatus    DiagnosticStatus
 	OpenClawIntegrationStatus  DiagnosticStatus
+	PiIntegrationStatus        DiagnosticStatus
 
 	// Per-agent system-channel focus precision (effective "app"|"window").
 	ClaudeSystemFocusPrecision    string
@@ -231,6 +247,7 @@ type DiagnosticsResult struct {
 	WorkBuddySystemFocusPrecision string
 	HermesSystemFocusPrecision    string
 	OpenClawSystemFocusPrecision  string
+	PiSystemFocusPrecision        string
 
 	// Temporary notification freeze (from freeze.json).
 	FreezeActive   bool
@@ -253,6 +270,7 @@ func (s *Service) Run() (*DiagnosticsResult, error) {
 	result.WorkBuddyInstalled = s.workbuddyIntegration != nil && s.workbuddyIntegration.DetectInstalled()
 	result.HermesInstalled = s.hermesIntegration != nil && s.hermesIntegration.DetectInstalled()
 	result.OpenClawInstalled = s.openclawIntegration != nil && s.openclawIntegration.DetectInstalled()
+	result.PiInstalled = s.piIntegration != nil && s.piIntegration.DetectInstalled()
 
 	// System notification detection
 	result.SystemNotifyAvailable, result.SystemNotifyName = detectSystemNotification()
@@ -266,7 +284,7 @@ func (s *Service) Run() (*DiagnosticsResult, error) {
 	result.ConfigExists = cfgErr == nil
 
 	// hook 已注册但 command 指向的二进制不存在时,集成实际不可用(issue #34)
-	var claudeBinaryMissing, codexBinaryMissing, zcodeBinaryMissing, grokBinaryMissing, droidBinaryMissing, opencodeBinaryMissing, workbuddyBinaryMissing, hermesBinaryMissing, openclawBinaryMissing bool
+	var claudeBinaryMissing, codexBinaryMissing, zcodeBinaryMissing, grokBinaryMissing, droidBinaryMissing, opencodeBinaryMissing, workbuddyBinaryMissing, hermesBinaryMissing, openclawBinaryMissing, piBinaryMissing bool
 
 	// Claude hooks settings
 	claudeSettingsPath, _ := s.claudeIntegration.SettingsPath("user")
@@ -351,6 +369,15 @@ func (s *Service) Run() (*DiagnosticsResult, error) {
 		}
 	}
 
+	if s.piIntegration != nil {
+		piSettingsPath, _ := s.piIntegration.SettingsPath("user")
+		if piSettingsPath != "" {
+			installed, err := s.piIntegration.IsHookInstalled(piSettingsPath)
+			result.PiHookInstalled = err == nil && installed
+			piBinaryMissing = result.PiHookInstalled && hookBinaryMissingSource(piSettingsPath, "handle-pi-hook")
+		}
+	}
+
 	// Config values
 	result.ClaudeFeishuEnabled = cfgLoadErr == nil && cfg.Notify.ClaudeCode.Channels.Feishu.Enabled
 	result.ClaudeSystemEnabled = cfgLoadErr == nil && cfg.Notify.ClaudeCode.Channels.System.Enabled
@@ -424,6 +451,14 @@ func (s *Service) Run() (*DiagnosticsResult, error) {
 	result.OpenClawBarkEnabled = cfgLoadErr == nil && cfg.Notify.OpenClaw.Channels.Bark.Enabled
 	result.OpenClawNtfyEnabled = cfgLoadErr == nil && cfg.Notify.OpenClaw.Channels.Ntfy.Enabled
 	result.OpenClawSlackEnabled = cfgLoadErr == nil && cfg.Notify.OpenClaw.Channels.Slack.Enabled
+	result.PiFeishuEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.Feishu.Enabled
+	result.PiSystemEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.System.Enabled
+	result.PiWechatEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.Wechat.Enabled
+	result.PiWechatWorkEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.WechatWork.Enabled
+	result.PiDingTalkEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.DingTalk.Enabled
+	result.PiBarkEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.Bark.Enabled
+	result.PiNtfyEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.Ntfy.Enabled
+	result.PiSlackEnabled = cfgLoadErr == nil && cfg.Notify.Pi.Channels.Slack.Enabled
 
 	// Per-agent effective system focus precision, read fresh from the
 	// AGENT_NOTIFY_FOCUS_PRECISION environment variable.
@@ -436,6 +471,7 @@ func (s *Service) Run() (*DiagnosticsResult, error) {
 	result.WorkBuddySystemFocusPrecision = config.FocusPrecisionFromEnv()
 	result.HermesSystemFocusPrecision = config.FocusPrecisionFromEnv()
 	result.OpenClawSystemFocusPrecision = config.FocusPrecisionFromEnv()
+	result.PiSystemFocusPrecision = config.FocusPrecisionFromEnv()
 
 	result.ClaudeIntegrationStatus = integrationStatusWithBinary(result.ConfigExists, result.ClaudeInstalled, result.ClaudeHookInstalled, claudeBinaryMissing)
 	result.CodexIntegrationStatus = integrationStatusWithBinary(result.ConfigExists, result.CodexInstalled, result.CodexHookInstalled, codexBinaryMissing)
@@ -446,6 +482,7 @@ func (s *Service) Run() (*DiagnosticsResult, error) {
 	result.WorkBuddyIntegrationStatus = integrationStatusWithBinary(result.ConfigExists, result.WorkBuddyInstalled, result.WorkBuddyHookInstalled, workbuddyBinaryMissing)
 	result.HermesIntegrationStatus = integrationStatusWithBinary(result.ConfigExists, result.HermesInstalled, result.HermesHookInstalled, hermesBinaryMissing)
 	result.OpenClawIntegrationStatus = integrationStatusWithBinary(result.ConfigExists, result.OpenClawInstalled, result.OpenClawHookInstalled, openclawBinaryMissing)
+	result.PiIntegrationStatus = integrationStatusWithBinary(result.ConfigExists, result.PiInstalled, result.PiHookInstalled, piBinaryMissing)
 
 	// Feishu CLI
 	_, feishuCLIConfigErr := feishucli.ParseConfig()
@@ -575,6 +612,13 @@ func (s *Service) Print(output OutputWriter, result *DiagnosticsResult) {
 	openclawNotifyStatus := padRight(diagnosticStatusLabel(result.OpenClawIntegrationStatus), 14)
 	output.Writef(i18n.T("doctor.row_format")+"\n", "OpenClaw", openclawInstallStatus, openclawNotifyStatus)
 
+	piInstallStatus := padRight(i18n.T("status.not_installed"), 8)
+	if result.PiInstalled {
+		piInstallStatus = padRight(i18n.T("status.installed"), 8)
+	}
+	piNotifyStatus := padRight(diagnosticStatusLabel(result.PiIntegrationStatus), 14)
+	output.Writef(i18n.T("doctor.row_format")+"\n", "Pi", piInstallStatus, piNotifyStatus)
+
 	output.Writef(i18n.T("doctor.agent_sep") + "\n")
 	output.Writef("\n")
 
@@ -675,6 +719,16 @@ func (s *Service) Print(output OutputWriter, result *DiagnosticsResult) {
 		boolIcon(result.OpenClawNtfyEnabled),
 		boolIcon(result.OpenClawSlackEnabled),
 	)
+	output.Writef(channelRow, "Pi",
+		boolIcon(result.PiFeishuEnabled),
+		boolIcon(result.PiSystemEnabled),
+		boolIcon(result.PiWechatEnabled),
+		boolIcon(result.PiWechatWorkEnabled),
+		boolIcon(result.PiDingTalkEnabled),
+		boolIcon(result.PiBarkEnabled),
+		boolIcon(result.PiNtfyEnabled),
+		boolIcon(result.PiSlackEnabled),
+	)
 	output.Writef(i18n.T("doctor.channel_sep") + "\n")
 	output.Writef("\n")
 
@@ -763,6 +817,8 @@ func firstEnabledAgentSystemPrecision(result *DiagnosticsResult) string {
 		precision = result.HermesSystemFocusPrecision
 	case result.OpenClawSystemEnabled:
 		precision = result.OpenClawSystemFocusPrecision
+	case result.PiSystemEnabled:
+		precision = result.PiSystemFocusPrecision
 	}
 	if precision != config.FocusPrecisionWindow {
 		return config.FocusPrecisionApp

@@ -45,6 +45,7 @@ type Service struct {
 	workbuddyIntegration agentintegrations.Integration
 	hermesIntegration    agentintegrations.Integration
 	openclawIntegration  agentintegrations.Integration
+	piIntegration        agentintegrations.Integration
 	feishuPreparer       FeishuPreparer
 	configLoader         ConfigLoader
 }
@@ -75,6 +76,9 @@ func NewService(opts ...Option) *Service {
 		// WorkBuddy is opt-in here so library consumers and isolated tests do not
 		// accidentally inspect a user's ~/.codebuddy directory. The CLI injects it.
 		workbuddyIntegration: nil,
+		// Pi is opt-in for the library service, matching WorkBuddy: callers that
+		// need host discovery (CLI / desktop) inject it explicitly.
+		piIntegration: nil,
 	}
 
 	for _, opt := range opts {
@@ -126,6 +130,9 @@ func WithHermesIntegration(i agentintegrations.Integration) Option {
 }
 func WithOpenClawIntegration(i agentintegrations.Integration) Option {
 	return func(s *Service) { s.openclawIntegration = i }
+}
+func WithPiIntegration(i agentintegrations.Integration) Option {
+	return func(s *Service) { s.piIntegration = i }
 }
 
 // WithFeishuPreparer sets the Feishu preparer.

@@ -17,13 +17,21 @@ func Start(actions Actions) {
 			for {
 				select {
 				case <-open.ClickedCh:
-					if actions.Open != nil { actions.Open() }
+					if actions.Open != nil {
+						actions.Open()
+					}
 				case <-pause.ClickedCh:
-					if actions.Pause != nil { actions.Pause() }
+					if actions.Pause != nil {
+						actions.Pause()
+					}
 				case <-resume.ClickedCh:
-					if actions.Resume != nil { actions.Resume() }
+					if actions.Resume != nil {
+						actions.Resume()
+					}
 				case <-quit.ClickedCh:
-					if actions.Quit != nil { actions.Quit() }
+					if actions.Quit != nil {
+						actions.Quit()
+					}
 					return
 				}
 			}
@@ -32,3 +40,5 @@ func Start(actions Actions) {
 }
 
 func Quit() { systray.Quit() }
+
+func SystemShutdownRequested() bool { return false }

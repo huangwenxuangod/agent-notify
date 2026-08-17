@@ -31,6 +31,7 @@ type AgentConfig struct {
 	WorkBuddy  AgentTargetConfig `yaml:"workbuddy"`   // WorkBuddy / CodeBuddy 配置
 	Hermes     AgentTargetConfig `yaml:"hermes"`
 	OpenClaw   AgentTargetConfig `yaml:"openclaw"`
+	Pi         AgentTargetConfig `yaml:"pi"`
 }
 
 // AgentTargetConfig holds configuration for a specific agent.
@@ -67,6 +68,7 @@ type NotifyConfig struct {
 	WorkBuddy  AgentNotifyConfig `yaml:"workbuddy"`   // WorkBuddy / CodeBuddy 通知配置
 	Hermes     AgentNotifyConfig `yaml:"hermes"`
 	OpenClaw   AgentNotifyConfig `yaml:"openclaw"`
+	Pi         AgentNotifyConfig `yaml:"pi"`
 }
 
 // ByID returns the notification settings for a registered agent. Keeping this
@@ -91,6 +93,8 @@ func (n *NotifyConfig) ByID(id string) *AgentNotifyConfig {
 		return &n.Hermes
 	case "openclaw":
 		return &n.OpenClaw
+	case "pi":
+		return &n.Pi
 	default:
 		return nil
 	}
@@ -103,7 +107,7 @@ func (n *NotifyConfig) ByID(id string) *AgentNotifyConfig {
 // enabledRemoteFreezeChannels 仍只遍历前四个，导致只配 Droid 的用户完全冻结不了。
 // TestNotifyConfigAllCoversEveryAgent 会在字段数与此处不一致时失败。
 func (n NotifyConfig) All() []AgentNotifyConfig {
-	return []AgentNotifyConfig{n.ClaudeCode, n.Codex, n.ZCode, n.Grok, n.Droid, n.OpenCode, n.WorkBuddy, n.Hermes, n.OpenClaw}
+	return []AgentNotifyConfig{n.ClaudeCode, n.Codex, n.ZCode, n.Grok, n.Droid, n.OpenCode, n.WorkBuddy, n.Hermes, n.OpenClaw, n.Pi}
 }
 
 // AgentNotifyConfig holds notification configuration for a single agent.
@@ -306,6 +310,7 @@ func Default() Config {
 			WorkBuddy: AgentTargetConfig{Enabled: false, InstallScope: "user"},
 			Hermes:    AgentTargetConfig{Enabled: false, InstallScope: "user"},
 			OpenClaw:  AgentTargetConfig{Enabled: false, InstallScope: "user"},
+			Pi:        AgentTargetConfig{Enabled: false, InstallScope: "user"},
 		},
 		Notify: NotifyConfig{
 			ClaudeCode: AgentNotifyConfig{
@@ -335,6 +340,7 @@ func Default() Config {
 			WorkBuddy: AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
 			Hermes:    AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
 			OpenClaw:  AgentNotifyConfig{Events: append([]string(nil), allEvents...), Channels: disabledChannels()},
+			Pi:        AgentNotifyConfig{Events: []string{"run_completed", "run_failed"}, Channels: disabledChannels()},
 		},
 		// A channel is ready to configure from the first launch. Delivery still
 		// requires a non-empty endpoint, so these defaults never emit a message.
@@ -435,6 +441,9 @@ func Load(path string) (Config, error) {
 	if cfg.Agent.OpenClaw.InstallScope == "" {
 		cfg.Agent.OpenClaw.InstallScope = "user"
 	}
+	if cfg.Agent.Pi.InstallScope == "" {
+		cfg.Agent.Pi.InstallScope = "user"
+	}
 	if cfg.Behavior.DedupeSeconds == 0 {
 		cfg.Behavior.DedupeSeconds = 10
 	}
@@ -457,6 +466,7 @@ func Load(path string) (Config, error) {
 	cfg.Notify.WorkBuddy.Events = ensureEvents(cfg.Notify.WorkBuddy, def.Notify.WorkBuddy.Events)
 	cfg.Notify.Hermes.Events = ensureEvents(cfg.Notify.Hermes, def.Notify.Hermes.Events)
 	cfg.Notify.OpenClaw.Events = ensureEvents(cfg.Notify.OpenClaw, def.Notify.OpenClaw.Events)
+	cfg.Notify.Pi.Events = ensureEvents(cfg.Notify.Pi, def.Notify.Pi.Events)
 	if cfg.Version < 2 {
 		migrateRemoteDelivery(&cfg)
 		cfg.Version = 2

@@ -18,7 +18,7 @@
 
 Agent Notify is a local notification layer for AI agents. It detects installed agents, installs their official hook or plugin integration, and sends a native notification or a configured bot message when a task needs attention, finishes, or fails.
 
-It supports **Claude Code, Codex, WorkBuddy / CodeBuddy, Hermes Agent, OpenClaw, ZCode, Grok, Droid, and OpenCode**. Delivery channels include **system notifications, Feishu / Lark, WeChat, WeChat Work, DingTalk, Bark, ntfy, and Slack**.
+It supports **Claude Code, Codex, Pi, WorkBuddy / CodeBuddy, Hermes Agent, OpenClaw, ZCode, Grok, Droid, and OpenCode**. Delivery channels include **system notifications, Feishu / Lark, WeChat, WeChat Work, DingTalk, Bark, ntfy, and Slack**.
 
 <p align="center">
   <img src="assist/demo.gif" alt="Agent Notify demo" width="800">
@@ -88,6 +88,7 @@ WorkBuddy caches hooks inside its `codebuddy --serve` process. Restart WorkBuddy
 | Grok | Native hooks | Permission/input classification, completion, failure |
 | Droid | Native hooks | Permission/input classification and completion |
 | OpenCode | JavaScript plugin | Permission, input, completion, failure |
+| Pi | Official TypeScript extension | Completion and interruption; installed globally with no per-project approval |
 
 Notes:
 
@@ -100,6 +101,7 @@ Notes:
 - WorkBuddy uses the CodeBuddy settings schema at `~/.codebuddy/settings.json`.
 - Hermes writes `~/.hermes/hooks/agent-notify/HOOK.yaml` and `handler.py`; this is its Gateway event surface.
 - OpenClaw writes a self-contained extension to `~/.openclaw/extensions/agent-notify/`. OpenClaw still controls whether that extension is enabled and granted conversation access.
+- Pi writes a native TypeScript extension to `~/.pi/agent/extensions/agent-notify.ts` (or `.pi/extensions/agent-notify.ts` for project scope). It coalesces `agent_end` results for five seconds so automatic retries produce only the final notification, and reports `session_shutdown(reason=quit)` only when a run is still active.
 - **`SessionStart` does not produce a notification.** It is subscribed on every agent solely to capture the terminal window at session start, which powers Linux window-level [Click-to-Focus](#click-to-focus). On macOS/Windows the SessionStart hook is a no-op.
 
 ### Supported Platforms
@@ -154,6 +156,7 @@ Agent integration config locations:
 - WorkBuddy / CodeBuddy: `~/.codebuddy/settings.json` (writes `handle-workbuddy-hook`)
 - Hermes Agent: `~/.hermes/hooks/agent-notify/` (writes a Gateway hook manifest and handler)
 - OpenClaw: `~/.openclaw/extensions/agent-notify/` (writes an ESM extension)
+- Pi: `~/.pi/agent/extensions/agent-notify.ts` (writes an auto-discovered TypeScript extension; project scope uses `.pi/extensions/agent-notify.ts`)
 
 Remote channels are configured once under `remote` in `~/.agent-notify/config.yaml` and shared by enabled agents. Agent-level event choices still decide which events are sent.
 

@@ -8,20 +8,46 @@ extern void agentNotifyTrayQuit(void);
 @interface AgentNotifyTrayController : NSObject
 @end
 
+static NSStatusItem *agentNotifyStatusItem;
+static AgentNotifyTrayController *agentNotifyTrayController;
+static BOOL agentNotifyPowerOffRequested;
+
 @implementation AgentNotifyTrayController
 - (void)open:(id)sender { agentNotifyTrayOpen(); }
 - (void)pause:(id)sender { agentNotifyTrayPause(); }
 - (void)resume:(id)sender { agentNotifyTrayResume(); }
 - (void)quit:(id)sender { agentNotifyTrayQuit(); }
+- (void)applicationQuit:(id)sender {
+  (void)sender;
+  agentNotifyTrayQuit();
+}
+- (void)systemWillPowerOff:(NSNotification *)notification {
+  (void)notification;
+  agentNotifyPowerOffRequested = YES;
+}
 @end
-
-static NSStatusItem *agentNotifyStatusItem;
-static AgentNotifyTrayController *agentNotifyTrayController;
 
 void agentNotifyInstallTray(void) {
   dispatch_async(dispatch_get_main_queue(), ^{
     if (agentNotifyStatusItem != nil) { return; }
     agentNotifyTrayController = [AgentNotifyTrayController new];
+    [[[NSWorkspace sharedWorkspace] notificationCenter]
+      addObserver:agentNotifyTrayController
+      selector:@selector(systemWillPowerOff:)
+      name:NSWorkspaceWillPowerOffNotification
+      object:nil];
+    // Wails routes the default Quit menu through the same close callback as
+    // the window. Forward it through Go so explicit app quits are not hidden.
+    NSMenu *mainMenu = [NSApp mainMenu];
+    NSMenuItem *appMenuItem = [mainMenu itemAtIndex:0];
+    NSMenu *appMenu = [appMenuItem submenu];
+    for (NSMenuItem *item in [appMenu itemArray]) {
+      if ([[item title] hasPrefix:@"Quit "]) {
+        [item setTarget:agentNotifyTrayController];
+        [item setAction:@selector(applicationQuit:)];
+        break;
+      }
+    }
     agentNotifyStatusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
     NSButton *button = agentNotifyStatusItem.button;
     if (@available(macOS 11.0, *)) {
@@ -39,6 +65,10 @@ void agentNotifyInstallTray(void) {
     for (NSMenuItem *item in menu.itemArray) { item.target = agentNotifyTrayController; }
     agentNotifyStatusItem.menu = menu;
   });
+}
+
+int agentNotifySystemShutdownRequested(void) {
+  return agentNotifyPowerOffRequested ? 1 : 0;
 }
 
 void agentNotifyRemoveTray(void) {

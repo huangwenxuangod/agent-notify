@@ -48,6 +48,12 @@ desktop() {
     exit 1
   fi
   chmod 755 "$hook_binary"
+  # Pi auto-discovers a managed user extension, but it does not reload its
+  # source from Agent Notify on its own. Refresh an existing installation when
+  # rebuilding the hook runtime so lifecycle fixes ship with desktop updates.
+  if command -v pi >/dev/null 2>&1 || [[ -d "$HOME/.pi/agent" ]]; then
+    "$hook_binary" pi install-extension --scope user --binary "$hook_binary"
+  fi
   cp "$ROOT_DIR/cmd/agent-notify-desktop/build/darwin/Info.plist" "$contents/Info.plist"
   cp "$ROOT_DIR/cmd/agent-notify-desktop/build/darwin/AgentNotify.icns" "$contents/Resources/AgentNotify.icns"
   codesign --force --deep --sign - "$app_path"

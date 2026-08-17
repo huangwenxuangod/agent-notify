@@ -61,5 +61,10 @@ func All() []Descriptor {
 			Target: func(cfg *config.Config) *config.AgentTargetConfig { return &cfg.Agent.OpenClaw },
 			Notify: func(cfg *config.Config) *config.AgentNotifyConfig { return &cfg.Notify.OpenClaw },
 		},
+		{
+			ID: "pi", Name: "Pi", Integration: NewPiIntegration(),
+			Target: func(cfg *config.Config) *config.AgentTargetConfig { return &cfg.Agent.Pi },
+			Notify: func(cfg *config.Config) *config.AgentNotifyConfig { return &cfg.Notify.Pi },
+		},
 	}
 }

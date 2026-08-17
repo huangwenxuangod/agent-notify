@@ -14,6 +14,7 @@ import (
 )
 
 type fakeSender struct {
+	mu    sync.Mutex
 	name  string
 	err   error
 	calls int
@@ -22,6 +23,8 @@ type fakeSender struct {
 func (f *fakeSender) Name() string { return f.name }
 
 func (f *fakeSender) Send(_ context.Context, _ Message) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	return f.err
 }
@@ -138,6 +141,35 @@ func TestDispatcherSendAllDoesNotDuplicateConcurrentSendsForSameSender(t *testin
 
 	if sender.calls != 1 {
 		t.Fatalf("sender calls = %d, want 1", sender.calls)
+	}
+}
+
+func TestDispatcherSendAllKeepsParallelTerminalSessionsIndependent(t *testing.T) {
+	store := state.NewStore(filepath.Join(t.TempDir(), "state.json"))
+	sender := &fakeSender{name: "system"}
+	dispatcher := NewDispatcher(store, 60*time.Second, sender)
+
+	messages := []Message{
+		{Agent: "pi", Event: "run_completed", SessionID: "pi-terminal-a", Body: "done"},
+		{Agent: "pi", Event: "run_completed", SessionID: "pi-terminal-b", Body: "done"},
+		{Agent: "claude_code", Event: "run_completed", SessionID: "claude-terminal-a", Body: "done"},
+		{Agent: "claude_code", Event: "run_completed", SessionID: "claude-terminal-b", Body: "done"},
+	}
+
+	var wg sync.WaitGroup
+	for _, msg := range messages {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := dispatcher.SendAll(context.Background(), msg); err != nil {
+				t.Errorf("SendAll(%s/%s): %v", msg.Agent, msg.SessionID, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if sender.calls != len(messages) {
+		t.Fatalf("sender calls = %d, want %d independent terminal sessions", sender.calls, len(messages))
 	}
 }
 

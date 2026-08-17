@@ -33,7 +33,7 @@ func (p Policy) Applies(event, origin string) bool {
 // fallback. Agents without two terminal sources intentionally return empty.
 func For(agent string) Policy {
 	switch agent {
-	case "codex", "workbuddy":
+	case "codex", "workbuddy", "pi":
 		return Policy{Events: []string{"run_completed", "run_failed"}, Primary: "native_hook", Fallback: []string{"desktop_monitor"}}
 	default:
 		return Policy{}

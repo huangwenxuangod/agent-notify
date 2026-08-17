@@ -22,6 +22,7 @@ const (
 	agentWorkBuddy  = "workbuddy"
 	agentHermes     = "hermes"
 	agentOpenClaw   = "openclaw"
+	agentPi         = "pi"
 	channelSystem   = "system"
 	channelFeishu   = "feishu"
 	channelWechat   = "wechat"
@@ -81,7 +82,7 @@ type configuredAgent struct {
 func (s *Service) selectAgent(prompter Prompter, cfg config.Config) (string, error) {
 	agentOptions, defaultAgent := s.agentOptions(cfg)
 	if len(agentOptions) == 0 {
-		return "", errors.New("Claude Code, Codex, ZCode, Grok, Droid, OpenCode or WorkBuddy not detected; please install one first")
+		return "", errors.New("no supported agent detected; please install Claude Code, Codex, Pi, or another supported agent first")
 	}
 	if defaultAgent == "" {
 		defaultAgent = agentOptions[0].Value
@@ -139,6 +140,12 @@ func (s *Service) agentOptions(cfg config.Config) ([]PromptOption, string) {
 	}
 	if s.openclawIntegration != nil && s.openclawIntegration.DetectInstalled() {
 		options = append(options, PromptOption{Label: "OpenClaw", Value: agentOpenClaw})
+	}
+	if s.piIntegration != nil && s.piIntegration.DetectInstalled() {
+		options = append(options, PromptOption{Label: "Pi", Value: agentPi})
+		if cfg.Agent.Pi.Enabled && defaultAgent == "" {
+			defaultAgent = agentPi
+		}
 	}
 	return options, defaultAgent
 }
@@ -214,6 +221,8 @@ func eventOptionsForAgent(agent string) []PromptOption {
 		return claudeEventOptionsFn()
 	case agentHermes, agentOpenClaw:
 		return claudeEventOptionsFn()
+	case agentPi:
+		return []PromptOption{{Label: i18n.T("event.run_completed"), Value: "run_completed"}, {Label: i18n.T("event.run_failed"), Value: "run_failed"}}
 	default:
 		return codexEventOptionsFn()
 	}
@@ -237,6 +246,8 @@ func channelsForAgent(cfg config.Config, agent string) config.ChannelsConfig {
 		return cfg.Notify.Hermes.Channels
 	case agentOpenClaw:
 		return cfg.Notify.OpenClaw.Channels
+	case agentPi:
+		return cfg.Notify.Pi.Channels
 	default:
 		return cfg.Notify.Codex.Channels
 	}
@@ -260,6 +271,8 @@ func eventsForAgent(cfg config.Config, agent string) []string {
 		return cfg.Notify.Hermes.Events
 	case agentOpenClaw:
 		return cfg.Notify.OpenClaw.Events
+	case agentPi:
+		return cfg.Notify.Pi.Events
 	default:
 		return cfg.Notify.Codex.Events
 	}
@@ -285,6 +298,8 @@ func (s *Service) configureAgent(req configureAgentRequest) (configuredAgent, er
 		return s.configureExternal(req, s.hermesIntegration, &req.cfg.Agent.Hermes, &req.cfg.Notify.Hermes, "Hermes")
 	case agentOpenClaw:
 		return s.configureExternal(req, s.openclawIntegration, &req.cfg.Agent.OpenClaw, &req.cfg.Notify.OpenClaw, "OpenClaw")
+	case agentPi:
+		return s.configureExternal(req, s.piIntegration, &req.cfg.Agent.Pi, &req.cfg.Notify.Pi, "Pi")
 	default:
 		return configuredAgent{}, fmt.Errorf("unsupported agent: %s", req.agent)
 	}
@@ -513,20 +528,16 @@ func (s *Service) configureWorkBuddy(req configureAgentRequest) (configuredAgent
 
 func (s *Service) configureExternal(req configureAgentRequest, integration agentintegrations.Integration, target *config.AgentTargetConfig, notifyCfg *config.AgentNotifyConfig, name string) (configuredAgent, error) {
 	next := req.cfg
-	target = func() *config.AgentTargetConfig {
-		if name == "Hermes" {
-			return &next.Agent.Hermes
-		}
-		return &next.Agent.OpenClaw
-	}()
-	notifyCfg = func() *config.AgentNotifyConfig {
-		switch name {
-		case "Hermes":
-			return &next.Notify.Hermes
-		default:
-			return &next.Notify.OpenClaw
-		}
-	}()
+	switch name {
+	case "Hermes":
+		target, notifyCfg = &next.Agent.Hermes, &next.Notify.Hermes
+	case "OpenClaw":
+		target, notifyCfg = &next.Agent.OpenClaw, &next.Notify.OpenClaw
+	case "Pi":
+		target, notifyCfg = &next.Agent.Pi, &next.Notify.Pi
+	default:
+		return configuredAgent{}, fmt.Errorf("unsupported external agent: %s", name)
+	}
 	notifyCfg.Channels = applyChannelSelection(notifyCfg.Channels, req.channels)
 	notifyCfg.Events = dedupeStrings(req.events)
 	if err := s.prepareSelectedChannels(req.ctx, req.channels); err != nil {

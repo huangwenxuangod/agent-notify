@@ -6,6 +6,7 @@ package tray
 #cgo LDFLAGS: -framework Cocoa -framework UniformTypeIdentifiers
 void agentNotifyInstallTray(void);
 void agentNotifyRemoveTray(void);
+int agentNotifySystemShutdownRequested(void);
 */
 import "C"
 
@@ -25,6 +26,8 @@ func Start(next Actions) {
 
 func Quit() { C.agentNotifyRemoveTray() }
 
+func SystemShutdownRequested() bool { return C.agentNotifySystemShutdownRequested() != 0 }
+
 func invoke(action func(Actions)) {
 	mu.RLock()
 	current := actions
@@ -33,13 +36,37 @@ func invoke(action func(Actions)) {
 }
 
 //export agentNotifyTrayOpen
-func agentNotifyTrayOpen() { invoke(func(a Actions) { if a.Open != nil { a.Open() } }) }
+func agentNotifyTrayOpen() {
+	invoke(func(a Actions) {
+		if a.Open != nil {
+			a.Open()
+		}
+	})
+}
 
 //export agentNotifyTrayPause
-func agentNotifyTrayPause() { invoke(func(a Actions) { if a.Pause != nil { a.Pause() } }) }
+func agentNotifyTrayPause() {
+	invoke(func(a Actions) {
+		if a.Pause != nil {
+			a.Pause()
+		}
+	})
+}
 
 //export agentNotifyTrayResume
-func agentNotifyTrayResume() { invoke(func(a Actions) { if a.Resume != nil { a.Resume() } }) }
+func agentNotifyTrayResume() {
+	invoke(func(a Actions) {
+		if a.Resume != nil {
+			a.Resume()
+		}
+	})
+}
 
 //export agentNotifyTrayQuit
-func agentNotifyTrayQuit() { invoke(func(a Actions) { if a.Quit != nil { a.Quit() } }) }
+func agentNotifyTrayQuit() {
+	invoke(func(a Actions) {
+		if a.Quit != nil {
+			a.Quit()
+		}
+	})
+}

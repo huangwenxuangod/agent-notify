@@ -31,7 +31,7 @@ func TestAllDescriptorsCoverEveryConfiguredAgent(t *testing.T) {
 		}
 	}
 
-	want := []string{"claude_code", "codex", "zcode", "grok", "droid", "opencode", "workbuddy", "hermes", "openclaw"}
+	want := []string{"claude_code", "codex", "zcode", "grok", "droid", "opencode", "workbuddy", "hermes", "openclaw", "pi"}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("descriptor IDs = %v, want %v", ids, want)
 	}

@@ -81,6 +81,7 @@ func runInitFlow(ctx context.Context, streams Streams, prompter Prompter, config
 		setup.WithWorkBuddyIntegration(agentintegrations.NewWorkBuddyIntegration()),
 		setup.WithHermesIntegration(agentintegrations.NewHermesIntegration()),
 		setup.WithOpenClawIntegration(agentintegrations.NewOpenClawIntegration()),
+		setup.WithPiIntegration(agentintegrations.NewPiIntegration()),
 		setup.WithFeishuPreparer(&feishuPreparerAdapter{}),
 	)
 

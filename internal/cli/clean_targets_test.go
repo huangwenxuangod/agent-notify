@@ -91,7 +91,7 @@ func TestHookCleanupTargetsCoversAllAgents(t *testing.T) {
 	for _, target := range targets {
 		names = append(names, target.integration.Name())
 	}
-	want := []string{"Claude Code", "Codex", "ZCode", "Grok", "Droid", "OpenCode", "WorkBuddy / CodeBuddy", "Hermes Agent", "OpenClaw"}
+	want := []string{"Claude Code", "Codex", "ZCode", "Grok", "Droid", "OpenCode", "WorkBuddy / CodeBuddy", "Hermes Agent", "OpenClaw", "Pi"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("agents = %v, want %v", names, want)
 	}

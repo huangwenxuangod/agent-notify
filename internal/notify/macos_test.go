@@ -159,7 +159,7 @@ func TestOpenBundleCommandRejectsUnsafeBundleID(t *testing.T) {
 	}
 }
 
-func TestMacOSSenderGroupPerAgent(t *testing.T) {
+func TestMacOSSenderDoesNotCollapseDistinctEventsIntoOneGroup(t *testing.T) {
 	var gotArgs []string
 	sender := NewMacOSSenderWithResolver(func(_ context.Context, name string, args ...string) error {
 		if name == mockExe {
@@ -172,14 +172,10 @@ func TestMacOSSenderGroupPerAgent(t *testing.T) {
 		t.Fatalf("Send() error = %v", err)
 	}
 
-	found := false
-	for i, a := range gotArgs {
-		if a == "-group" && i+1 < len(gotArgs) && gotArgs[i+1] == "com.agent-notify.codex" {
-			found = true
+	for _, a := range gotArgs {
+		if a == "-group" {
+			t.Fatalf("args = %#v, notifications must not share a fixed group", gotArgs)
 		}
-	}
-	if !found {
-		t.Fatalf("args = %#v, want -group com.agent-notify.codex", gotArgs)
 	}
 }
 
