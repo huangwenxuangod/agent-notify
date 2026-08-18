@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 type Session = { botToken: string; baseUrl: string };
 type Binding = { userId: string; contextToken?: string };
 type PendingLogin = { qrcode: string; qrUrl: string; qrDataURL: string };
-type PersistedState = { session?: Session; binding?: Binding; pending?: PendingLogin; lastDeliveryAt?: string; lastDeliveryError?: string };
+type PersistedState = { session?: Session; binding?: Binding; pending?: PendingLogin; sessionExpired?: boolean; lastDeliveryAt?: string; lastDeliveryError?: string };
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export type BridgeOptions = { stateDir: string; fetchImpl?: FetchLike; startMonitor?: boolean };
@@ -21,6 +21,8 @@ const stateFile = "wechat-ilink.json";
 const channelVersion = "2.4.6";
 const ilinkAppID = "bot";
 const ilinkAppClientVersion = "132102"; // 0x020406 (2.4.6)
+const sendTimeoutMs = 15_000;
+const staleSessionErrorCode = -14;
 
 export async function createBridge(options: BridgeOptions): Promise<IlinkBridge> {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -52,6 +54,12 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
     }
   };
 
+  const markSessionExpired = async () => {
+    state.sessionExpired = true;
+    state.lastDeliveryError = "微信会话已过期，请重新连接";
+    await save();
+  };
+
   const monitor = async () => {
     let cursor = "";
     while (state.session) {
@@ -63,7 +71,11 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
           body: JSON.stringify({ get_updates_buf: cursor, base_info: { channel_version: channelVersion } }),
         });
         if (!response.ok) throw new Error(`getupdates HTTP ${response.status}`);
-        const payload = await response.json() as { ret?: number; msgs?: Array<{ message_type?: number; from_user_id?: string; context_token?: string }>; get_updates_buf?: string };
+        const payload = await response.json() as { ret?: number; errcode?: number; msgs?: Array<{ message_type?: number; from_user_id?: string; context_token?: string }>; get_updates_buf?: string };
+        if (payload.errcode === staleSessionErrorCode || payload.ret === staleSessionErrorCode) {
+          await markSessionExpired();
+          return;
+        }
         if (payload.ret && payload.ret !== 0) throw new Error(`getupdates ret=${payload.ret}`);
         if (payload.get_updates_buf) cursor = payload.get_updates_buf;
         for (const message of payload.msgs ?? []) {
@@ -82,7 +94,7 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
   if (options.startMonitor !== false && state.session) void monitor();
 
   const setSession = async (session: Session) => {
-    state = { ...state, session };
+    state = { ...state, session, sessionExpired: false };
     await save();
   };
   const bind = async (binding: Binding) => {
@@ -99,6 +111,7 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
         return json({
           logged_in: Boolean(state.session),
           bound: Boolean(state.binding),
+          session_expired: Boolean(state.sessionExpired),
           user_id: state.binding?.userId,
           last_delivery_at: state.lastDeliveryAt,
           last_delivery_error: state.lastDeliveryError,
@@ -112,6 +125,7 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
           state.session = undefined;
           state.binding = undefined;
           state.pending = undefined;
+          state.sessionExpired = false;
           state.lastDeliveryAt = undefined;
           state.lastDeliveryError = undefined;
           await save();
@@ -149,34 +163,43 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
       }
       if (request.method !== "POST" || url.pathname !== "/send") return json({ error: "not found" }, 404);
       if (!state.session) return json({ error: "WeChat bot is not logged in" }, 401);
+      if (state.sessionExpired) return json({ error: "微信会话已过期，请重新连接" }, 401);
       if (!state.binding) return json({ error: "Send one message to the bot to bind this WeChat account" }, 409);
 
       const message = await request.json() as { title?: string; content?: string };
       const text = [message.title, message.content].filter(Boolean).join("\n");
-      const response = await withSendCooldown(() => fetchImpl(`${state.session!.baseUrl.replace(/\/$/, "")}/ilink/bot/sendmessage`, {
-        method: "POST",
-        headers: ilinkHeaders(state.session!.botToken),
-        body: JSON.stringify({
-          msg: {
-            from_user_id: "",
-            to_user_id: state.binding!.userId,
-            client_id: `agent-notify-${crypto.randomUUID()}`,
-            message_type: 2,
-            message_state: 2,
-            context_token: state.binding!.contextToken,
-            item_list: [{ type: 1, text_item: { text } }],
-          },
-          base_info: { channel_version: channelVersion },
-        }),
-      }));
+      const payload = JSON.stringify({
+        msg: {
+          from_user_id: "",
+          to_user_id: state.binding!.userId,
+          client_id: `agent-notify-${crypto.randomUUID()}`,
+          message_type: 2,
+          message_state: 2,
+          context_token: state.binding!.contextToken,
+          item_list: [{ type: 1, text_item: { text } }],
+        },
+        base_info: { channel_version: channelVersion, bot_agent: "AgentNotify/1.0" },
+      });
+      let response: Response;
+      try {
+        response = await withSendCooldown(() => fetchWithRetry(fetchImpl, `${state.session!.baseUrl.replace(/\/$/, "")}/ilink/bot/sendmessage`, ilinkHeaders(state.session!.botToken), payload));
+      } catch (error) {
+        state.lastDeliveryError = describeNetworkError(error);
+        await save();
+        return json({ error: state.lastDeliveryError }, 502);
+      }
       if (!response.ok) {
         state.lastDeliveryError = `iLink returned HTTP ${response.status}`;
         await save();
         return json({ error: state.lastDeliveryError }, 502);
       }
-      const payload = await response.json().catch(() => ({ ret: 0 })) as { ret?: number; errmsg?: string };
-      if (payload.ret && payload.ret !== 0) {
-        state.lastDeliveryError = payload.errmsg ?? `iLink returned ${payload.ret}`;
+      const result = await response.json().catch(() => ({ ret: 0 })) as { ret?: number; errcode?: number; errmsg?: string };
+      if (result.errcode === staleSessionErrorCode || result.ret === staleSessionErrorCode) {
+        await markSessionExpired();
+        return json({ error: state.lastDeliveryError }, 401);
+      }
+      if ((result.ret && result.ret !== 0) || (result.errcode && result.errcode !== 0)) {
+        state.lastDeliveryError = result.errmsg ?? `iLink returned ${result.errcode ?? result.ret}`;
         await save();
         return json({ error: state.lastDeliveryError }, 502);
       }
@@ -198,6 +221,36 @@ function ilinkHeaders(token: string) {
     "iLink-App-ClientVersion": ilinkAppClientVersion,
     Authorization: `Bearer ${token}`,
   };
+}
+
+async function fetchWithRetry(fetchImpl: FetchLike, url: string, headers: Record<string, string>, body: string): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), sendTimeoutMs);
+    try {
+      return await fetchImpl(url, { method: "POST", headers, body, signal: controller.signal });
+    } catch (error) {
+      lastError = error;
+      if (!isTransientNetworkError(error) || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError;
+}
+
+function isTransientNetworkError(error: unknown): boolean {
+  const value = `${String(error)} ${(error as { code?: string; cause?: { code?: string } })?.code ?? ""} ${(error as { cause?: unknown })?.cause ?? ""}`;
+  return /ECONNRESET|UND_ERR_SOCKET|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|AbortError/i.test(value);
+}
+
+function describeNetworkError(error: unknown): string {
+  const value = String(error);
+  if (/AbortError/i.test(value)) return "iLink 请求超时";
+  const code = (error as { code?: string; cause?: { code?: string } })?.code ?? (error as { cause?: { code?: string } })?.cause?.code;
+  return `iLink 网络请求失败${code ? `：${code}` : ""}`;
 }
 
 async function loadState(path: string): Promise<PersistedState> {

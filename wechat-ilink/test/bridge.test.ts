@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { bridgeServerOptions, createBridge } from "../src/bridge";
@@ -30,7 +30,7 @@ test("send records the latest iLink failure for the desktop status", async () =>
   const root = join(tmpdir(), `agent-notify-ilink-${crypto.randomUUID()}`);
   roots.push(root);
   await mkdir(root, { recursive: true });
-  const bridge = await createBridge({
+	const bridge = await createBridge({
     stateDir: root,
     fetchImpl: async () => new Response(JSON.stringify({ ret: -2, errmsg: "prepare failed" })),
   });
@@ -46,8 +46,76 @@ test("send records the latest iLink failure for the desktop status", async () =>
   expect(await health.json()).toMatchObject({
     logged_in: true,
     bound: true,
+    session_expired: false,
     last_delivery_error: "prepare failed",
   });
+});
+
+test("send marks an expired iLink session as requiring reconnect", async () => {
+  const root = join(tmpdir(), `agent-notify-ilink-${crypto.randomUUID()}`);
+	roots.push(root);
+	await mkdir(root, { recursive: true });
+	const bridge = await createBridge({
+    stateDir: root,
+    fetchImpl: async () => new Response(JSON.stringify({ errcode: -14, errmsg: "session timeout" })),
+  });
+  await bridge.setSession({ botToken: "token", baseUrl: "https://ilink.example" });
+  await bridge.bind({ userId: "owner@im.wechat", contextToken: "context" });
+
+  const response = await bridge.handle(new Request("http://localhost/send", {
+    method: "POST", body: JSON.stringify({ content: "test" }),
+  }));
+  expect(response.status).toBe(401);
+  const health = await bridge.handle(new Request("http://localhost/health"));
+  expect(await health.json()).toMatchObject({
+    logged_in: true,
+    bound: true,
+    session_expired: true,
+    last_delivery_error: "微信会话已过期，请重新连接",
+  });
+});
+
+test("monitor marks a stale token as requiring reconnect", async () => {
+  const root = join(tmpdir(), `agent-notify-ilink-${crypto.randomUUID()}`);
+  roots.push(root);
+  await mkdir(root, { recursive: true });
+	await writeFile(join(root, "wechat-ilink.json"), JSON.stringify({ session: { botToken: "token", baseUrl: "https://ilink.example" } }));
+  const bridge = await createBridge({
+    stateDir: root,
+    fetchImpl: async () => new Response(JSON.stringify({ errcode: -14, errmsg: "session timeout" })),
+  });
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const health = await bridge.handle(new Request("http://localhost/health"));
+    if ((await health.json() as { session_expired?: boolean }).session_expired) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("monitor did not mark the stale session");
+});
+
+test("send retries a reset connection with the same client id", async () => {
+  const root = join(tmpdir(), `agent-notify-ilink-${crypto.randomUUID()}`);
+  roots.push(root);
+  await mkdir(root, { recursive: true });
+  let calls = 0;
+  const clientIDs: string[] = [];
+  const bridge = await createBridge({
+    stateDir: root,
+    fetchImpl: async (_url, init) => {
+      calls++;
+      clientIDs.push((JSON.parse(String(init?.body)) as { msg: { client_id: string } }).msg.client_id);
+      if (calls === 1) throw Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+      return new Response(JSON.stringify({ ret: 0 }));
+    },
+  });
+  await bridge.setSession({ botToken: "token", baseUrl: "https://ilink.example" });
+  await bridge.bind({ userId: "owner@im.wechat", contextToken: "context" });
+
+  const response = await bridge.handle(new Request("http://localhost/send", {
+    method: "POST", body: JSON.stringify({ content: "test" }),
+  }));
+  expect(response.status).toBe(204);
+  expect(calls).toBe(2);
+  expect(clientIDs[0]).toBe(clientIDs[1]);
 });
 
 test("send posts an iLink text payload for the bound account", async () => {
@@ -81,7 +149,7 @@ test("send posts an iLink text payload for the bound account", async () => {
       context_token: "context",
       item_list: [{ type: 1, text_item: { text: "Done\ntest" } }],
     },
-    base_info: { channel_version: "2.4.6" },
+    base_info: { channel_version: "2.4.6", bot_agent: "AgentNotify/1.0" },
   });
   expect(headers?.get("iLink-App-Id")).toBe("bot");
   expect(headers?.get("iLink-App-ClientVersion")).toBe("132102");
@@ -90,6 +158,7 @@ test("send posts an iLink text payload for the bound account", async () => {
   expect(await health.json()).toEqual({
     logged_in: true,
     bound: true,
+    session_expired: false,
     user_id: "owner@im.wechat",
     last_delivery_at: expect.any(String),
   });

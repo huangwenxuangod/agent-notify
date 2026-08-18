@@ -241,7 +241,7 @@ const providerFor = (key: RemoteKey) =>
   providers.find((provider) => provider.key === key)!;
 const connected = (channel: Channel, key?: RemoteKey) =>
   key === "WechatIlink"
-    ? Boolean(channel.Enabled && data?.wechatIlink.LoggedIn && data.wechatIlink.Bound)
+    ? Boolean(channel.Enabled && data?.wechatIlink.LoggedIn && data.wechatIlink.Bound && !data.wechatIlink.SessionExpired)
     : channel.Enabled && endpoint(channel).length > 0;
 
 function applyTheme() {
@@ -261,6 +261,7 @@ function isDarkTheme() {
 }
 function ilinkSummary() {
   const status = data!.wechatIlink;
+	if (status.SessionExpired) return { title: "需要重新连接", detail: "微信会话已过期，请重新扫码连接。" };
   if (!status.LoggedIn) {
     return { title: status.QRDataURL ? "等待扫码" : "尚未连接", detail: status.QRDataURL ? "请使用微信扫描二维码" : "连接后，通知将直接发送到微信" };
   }

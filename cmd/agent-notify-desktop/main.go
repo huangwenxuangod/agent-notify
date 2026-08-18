@@ -70,6 +70,7 @@ type DesktopStatus struct {
 type WechatIlinkStatus struct {
 	LoggedIn          bool   `json:"logged_in"`
 	Bound             bool   `json:"bound"`
+	SessionExpired    bool   `json:"session_expired"`
 	UserID            string `json:"user_id,omitempty"`
 	QRURL             string `json:"qr_url,omitempty"`
 	QRDataURL         string `json:"qr_data_url,omitempty"`
