@@ -63,6 +63,24 @@ func TestDefaultConfigUsesAgentScopedNotifyConfig(t *testing.T) {
 	}
 }
 
+func TestRemoteWechatIlinkConfigRoundTripsWithoutEndpointCredentials(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	want := Default()
+	want.Remote.WechatIlink.Enabled = true
+
+	if err := Save(path, want); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !got.Remote.WechatIlink.Enabled {
+		t.Fatal("wechat_ilink.enabled was not persisted")
+	}
+}
+
 func TestSaveUsesOwnerOnlyPermissions(t *testing.T) {
 	// Windows 无 POSIX 权限位:os.Stat 对可写文件恒返回 0666,Chmod 只能切换
 	// 只读位,0600/0700 断言在 Windows 上永远不成立(issue #20 的权限收紧

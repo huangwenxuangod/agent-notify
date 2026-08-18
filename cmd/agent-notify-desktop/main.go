@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"github.com/hellolib/agent-notify/internal/agenthooks"
 	"github.com/hellolib/agent-notify/internal/app/tester"
@@ -22,8 +23,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"sync"
 	"sync/atomic"
@@ -41,6 +44,8 @@ type App struct {
 	service       *bridge.Service
 	autoSetupMu   sync.Mutex
 	quitRequested atomic.Bool
+	ilinkMu       sync.Mutex
+	ilinkProcess  *exec.Cmd
 }
 
 var saveBridgeConfig = bridgeclient.SaveConfig
@@ -61,6 +66,19 @@ type DesktopStatus struct {
 	Logs         []string             `json:"logs"`
 	PendingRetry int                  `json:"pending_retry"`
 }
+
+type WechatIlinkStatus struct {
+	LoggedIn          bool   `json:"logged_in"`
+	Bound             bool   `json:"bound"`
+	UserID            string `json:"user_id,omitempty"`
+	QRURL             string `json:"qr_url,omitempty"`
+	QRDataURL         string `json:"qr_data_url,omitempty"`
+	Status            string `json:"status,omitempty"`
+	LastDeliveryAt    string `json:"last_delivery_at,omitempty"`
+	LastDeliveryError string `json:"last_delivery_error,omitempty"`
+}
+
+const wechatIlinkBridgeURL = "http://127.0.0.1:45176"
 
 const codexHookReviewScript = `tell application "Terminal"
 	activate
@@ -322,6 +340,9 @@ func (a *App) Events() ([]interface{}, error) {
 	}
 	return out, nil
 }
+func (a *App) Logs() ([]string, error) {
+	return a.service.ListLogs(50)
+}
 func (a *App) Status() (DesktopStatus, error) {
 	agents, err := a.service.ScanAgents()
 	if err != nil {
@@ -374,6 +395,123 @@ func (a *App) SendTest(agent string) error {
 }
 func (a *App) SendTestChannel(channel string) error {
 	return a.service.TestRemoteChannel(context.Background(), channel)
+}
+
+func (a *App) WechatIlinkStatus() (WechatIlinkStatus, error) {
+	var status WechatIlinkStatus
+	resp, err := http.Get(wechatIlinkBridgeURL + "/health")
+	if err != nil {
+		return status, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return status, fmt.Errorf("wechat-ilink bridge returned %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return status, err
+	}
+	loginResp, err := http.Get(wechatIlinkBridgeURL + "/login")
+	if err == nil {
+		defer loginResp.Body.Close()
+		var login WechatIlinkStatus
+		if json.NewDecoder(loginResp.Body).Decode(&login) == nil {
+			status = mergeWechatIlinkStatus(status, login)
+		}
+	}
+	return status, nil
+}
+
+func mergeWechatIlinkStatus(health, login WechatIlinkStatus) WechatIlinkStatus {
+	if login.Status != "" {
+		health.Status = login.Status
+	}
+	if login.QRURL != "" {
+		health.QRURL = login.QRURL
+	}
+	if login.QRDataURL != "" {
+		health.QRDataURL = login.QRDataURL
+	}
+	return health
+}
+
+func (a *App) StartWechatIlinkLogin() (WechatIlinkStatus, error) {
+	return a.wechatIlinkRequest(http.MethodPost, "/login")
+}
+
+func (a *App) ReconnectWechatIlink() (WechatIlinkStatus, error) {
+	return a.wechatIlinkRequest(http.MethodPost, "/reconnect")
+}
+
+func (a *App) PollWechatIlinkLogin() (WechatIlinkStatus, error) {
+	return a.wechatIlinkRequest(http.MethodPost, "/login/poll")
+}
+
+func (a *App) wechatIlinkRequest(method, path string) (WechatIlinkStatus, error) {
+	var status WechatIlinkStatus
+	req, err := http.NewRequest(method, wechatIlinkBridgeURL+path, nil)
+	if err != nil {
+		return status, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return status, err
+	}
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return status, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return status, fmt.Errorf("wechat-ilink login returned %d", resp.StatusCode)
+	}
+	return status, nil
+}
+
+func (a *App) startWechatIlinkBridge() {
+	statePath, err := config.StatePath()
+	if err != nil {
+		return
+	}
+	script := filepath.Join(filepath.Dir(statePath), "wechat-ilink", "src", "bridge.ts")
+	if _, err := os.Stat(script); err != nil {
+		return
+	}
+	if _, err := exec.LookPath("bun"); err != nil {
+		log.Printf("wechat-ilink bridge unavailable: bun not found")
+		return
+	}
+	a.ilinkMu.Lock()
+	defer a.ilinkMu.Unlock()
+	if a.ilinkProcess != nil && a.ilinkProcess.Process != nil {
+		return
+	}
+	logPath, _ := config.LogPath()
+	cmd := exec.Command("bun", "run", script)
+	logWriter := state.NewLogWriter(logPath)
+	cmd.Stdout = logWriter
+	cmd.Stderr = logWriter
+	if err := cmd.Start(); err != nil {
+		log.Printf("start wechat-ilink bridge: %v", err)
+		return
+	}
+	a.ilinkProcess = cmd
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			log.Printf("wechat-ilink bridge stopped: %v", err)
+		}
+		a.ilinkMu.Lock()
+		a.ilinkProcess = nil
+		a.ilinkMu.Unlock()
+	}()
+}
+
+func (a *App) stopWechatIlinkBridge() {
+	a.ilinkMu.Lock()
+	defer a.ilinkMu.Unlock()
+	if a.ilinkProcess != nil && a.ilinkProcess.Process != nil {
+		_ = a.ilinkProcess.Process.Kill()
+		a.ilinkProcess = nil
+	}
 }
 func (a *App) TestSystemNotification() error {
 	_, err := tester.NewService().TestSystem(context.Background())
@@ -517,6 +655,7 @@ func (a *App) startTray(ctx context.Context) {
 		log.Printf("register macOS notification helper: %v", err)
 	}
 	go func() { _, _ = a.AutoSetup() }()
+	go a.startWechatIlinkBridge()
 	go a.retryRemoteOutbox(ctx)
 	go a.watchWorkBuddyDesktop(ctx)
 	go a.watchCodexDesktop(ctx)
@@ -527,6 +666,7 @@ func (a *App) startTray(ctx context.Context) {
 		Quit: func() {
 			a.quitRequested.Store(true)
 			tray.Quit()
+			a.stopWechatIlinkBridge()
 			runtime.Quit(ctx)
 		},
 	})

@@ -70,7 +70,12 @@ func TestBuiltFrontendFitsDefaultWindowHeight(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(css)
-	for _, want := range []string{"padding: 18px 0 0", "margin-bottom: 18px", "padding: 24px"} {
+	for _, want := range []string{
+		"height: calc(100vh - 88px)",
+		"overflow: hidden",
+		"grid-template-columns: repeat(8, minmax(0, 1fr))",
+		"padding: 12px 0",
+	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("main.css missing compact layout rule %q", want)
 		}

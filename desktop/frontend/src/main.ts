@@ -6,6 +6,7 @@ import {
   Building2,
   Check,
   ChevronRight,
+  CircleAlert,
   CircleCheck,
   Gauge,
   Hash,
@@ -16,6 +17,8 @@ import {
   MousePointer2,
   Palette,
   Radio,
+  RefreshCw,
+  ScrollText,
   Save,
   Send,
   Settings2,
@@ -23,6 +26,7 @@ import {
   Smartphone,
   Sparkles,
   Sun,
+  TriangleAlert,
   Webhook,
   createIcons,
 } from "lucide";
@@ -37,6 +41,7 @@ import {
   clickToFocus,
 	 codexHookStatus,
   config,
+	logs,
   openCodexHookReview,
   saveConfig,
   sendTestChannel,
@@ -45,11 +50,16 @@ import {
 	setHideWindowOnClose,
 	setSystemNotifications,
   setClickToFocus,
-	systemNotifications,
+  systemNotifications,
+  startWechatIlinkLogin,
+  pollWechatIlinkLogin,
+  reconnectWechatIlink,
+  wechatIlinkStatus,
 } from "./api";
+import { classifyLog, filterLogs, type LogLevel } from "./logs";
 
 type View = "channels" | "settings";
-type SettingsTab = "general" | "notifications" | "appearance" | "advanced";
+type SettingsTab = "general" | "notifications" | "appearance" | "advanced" | "logs";
 type Theme = "system" | "light" | "dark";
 type RemoteKey = keyof Config["Remote"];
 type Credential = {
@@ -73,7 +83,9 @@ type Data = {
   autostart: AutostartStatus;
   hideWindowOnClose: boolean;
   clickToFocus: boolean;
-	 codexHook: HookRuntimeStatus;
+  codexHook: HookRuntimeStatus;
+  wechatIlink: import("./api").WechatIlinkStatus;
+	logs: string[];
 };
 
 const app = document.querySelector<HTMLElement>("#app")!;
@@ -82,6 +94,7 @@ const icons = {
   Building2,
   Check,
   ChevronRight,
+  CircleAlert,
   CircleCheck,
   Gauge,
   Hash,
@@ -92,6 +105,8 @@ const icons = {
   MousePointer2,
   Palette,
   Radio,
+  RefreshCw,
+  ScrollText,
   Save,
   Send,
   Settings2,
@@ -99,9 +114,20 @@ const icons = {
   Smartphone,
   Sparkles,
   Sun,
+  TriangleAlert,
   Webhook,
 };
 const providers: Provider[] = [
+  {
+    key: "WechatIlink",
+    label: "个人微信",
+    hint: "腾讯 iLink 机器人",
+    inputLabel: "无需填写地址",
+    placeholder: "扫码连接后自动绑定",
+    icon: "message-circle",
+    guide: "点击连接并扫码；再从你的微信给机器人发一条消息完成绑定。",
+    docs: "https://docs.openclaw.ai/channels/wechat",
+  },
   {
     key: "Ntfy",
     label: "ntfy",
@@ -194,8 +220,12 @@ let setting: SettingsTab = "general";
 let selected: RemoteKey = "Ntfy";
 let data: Data | undefined;
 let notice = "";
+type NoticeKind = "success" | "warning" | "error";
+let noticeKind: NoticeKind = "success";
+let logFilter: "all" | LogLevel = "all";
 let theme = (localStorage.getItem("agent-notify-theme") as Theme) || "system";
 let systemNotificationsEnabled = true;
+let ilinkRefreshTimer: number | undefined;
 
 const escape = (value: string) =>
   value.replace(
@@ -209,8 +239,10 @@ const endpoint = (channel: Channel) =>
   channel.TopicURL ?? channel.WebhookURL ?? "";
 const providerFor = (key: RemoteKey) =>
   providers.find((provider) => provider.key === key)!;
-const connected = (channel: Channel) =>
-  channel.Enabled && endpoint(channel).length > 0;
+const connected = (channel: Channel, key?: RemoteKey) =>
+  key === "WechatIlink"
+    ? Boolean(channel.Enabled && data?.wechatIlink.LoggedIn && data.wechatIlink.Bound)
+    : channel.Enabled && endpoint(channel).length > 0;
 
 function applyTheme() {
   document.documentElement.dataset.theme = theme;
@@ -219,16 +251,41 @@ function applyTheme() {
 function icon(name: string) {
   return `<i data-lucide="${name}"></i>`;
 }
+function showNotice(message: string, kind: NoticeKind = "success") {
+  notice = message;
+  noticeKind = kind;
+}
 function isDarkTheme() {
   return theme === "dark" ||
     (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 }
+function ilinkSummary() {
+  const status = data!.wechatIlink;
+  if (!status.LoggedIn) {
+    return { title: status.QRDataURL ? "等待扫码" : "尚未连接", detail: status.QRDataURL ? "请使用微信扫描二维码" : "连接后，通知将直接发送到微信" };
+  }
+  if (!status.Bound) return { title: "等待绑定", detail: "从微信给机器人发送一条消息" };
+  if (status.LastDeliveryError) return { title: "已连接", detail: `最近发送失败：${status.LastDeliveryError}` };
+  if (!status.LastDeliveryAt) return { title: "已连接", detail: "下一条 Agent 通知会发送到微信" };
+  return { title: "已连接", detail: `最近一次发送已被微信接口接受 · ${new Date(status.LastDeliveryAt).toLocaleString("zh-CN")}` };
+}
+function scheduleIlinkRefresh() {
+  window.clearTimeout(ilinkRefreshTimer);
+  if (!data || view !== "channels" || selected !== "WechatIlink") return;
+  ilinkRefreshTimer = window.setTimeout(async () => {
+    if (!data || view !== "channels" || selected !== "WechatIlink") return;
+    data.wechatIlink = await wechatIlinkStatus().catch(() => data!.wechatIlink);
+    render();
+  }, 5000);
+}
 function render() {
   applyTheme();
   const dark = isDarkTheme();
-  app.innerHTML = `<div class="shell"><header class="topbar"><div class="wordmark">Agent Notify</div><nav class="primary-nav"><button class="nav-icon ${view === "channels" ? "active" : ""}" data-view="channels" title="通知渠道" aria-label="通知渠道">${icon("bell-ring")}</button><button class="nav-icon ${view === "settings" ? "active" : ""}" data-view="settings" title="设置" aria-label="设置">${icon("settings-2")}</button></nav><div class="toolbar"><button class="toolbar-icon" data-action="theme" title="切换至${dark ? "浅色" : "深色"}模式" aria-label="切换至${dark ? "浅色" : "深色"}模式">${icon(dark ? "moon" : "sun")}</button></div></header><main>${data ? (view === "channels" ? channelsPage() : settingsPage()) : loading()}</main>${notice ? `<div class="toast">${icon("circle-check")}<span>${escape(notice)}</span></div>` : ""}</div>`;
+  const noticeIcon = noticeKind === "error" ? "circle-alert" : noticeKind === "warning" ? "triangle-alert" : "circle-check";
+  app.innerHTML = `<div class="shell"><header class="topbar"><div class="wordmark">Agent Notify</div><nav class="primary-nav"><button class="nav-icon ${view === "channels" ? "active" : ""}" data-view="channels" title="通知渠道" aria-label="通知渠道">${icon("bell-ring")}</button><button class="nav-icon ${view === "settings" ? "active" : ""}" data-view="settings" title="设置" aria-label="设置">${icon("settings-2")}</button></nav><div class="toolbar"><button class="toolbar-icon" data-action="theme" title="切换至${dark ? "浅色" : "深色"}模式" aria-label="切换至${dark ? "浅色" : "深色"}模式">${icon(dark ? "moon" : "sun")}</button></div></header><main>${data ? (view === "channels" ? channelsPage() : settingsPage()) : loading()}</main>${notice ? `<div class="toast toast-${noticeKind}">${icon(noticeIcon)}<span>${escape(notice)}</span></div>` : ""}</div>`;
   createIcons({ icons });
   bind();
+  scheduleIlinkRefresh();
 }
 function loading() {
   return `<section class="loading">${icon("loader-circle")}</section>`;
@@ -236,20 +293,24 @@ function loading() {
 function channelsPage() {
   const provider = providerFor(selected);
   const channel = data!.config.Remote[selected];
-  const active = connected(channel);
+  const active = connected(channel, selected);
+  const isIlink = selected === "WechatIlink";
   const credential = provider.credential;
   const credentialSaved = credential && Boolean(channel[credential.key]);
-  return `<section class="workspace channels-workspace"><div class="page-intro"><div><p class="eyebrow">远程通知</p><h1>选择你的送达渠道</h1></div><span class="delivery-count">${providers.filter((provider) => connected(data!.config.Remote[provider.key])).length} 个已配置</span></div><div class="provider-picker">${providers
+  const ilink = isIlink ? ilinkSummary() : undefined;
+  const setupGuide = isIlink ? "" : `<div class="setup-guide"><p>${provider.guide}</p><a href="${provider.docs}" target="_blank" rel="noreferrer">打开官方说明 ${icon("chevron-right")}</a></div>`;
+  const ilinkPanel = isIlink ? `<div class="ilink-status"><div><strong>${ilink!.title}</strong><p>${ilink!.detail}</p></div>${data!.wechatIlink.QRDataURL ? `<img class="ilink-qr" src="${data!.wechatIlink.QRDataURL}" alt="微信登录二维码">` : ""}${data!.wechatIlink.LoggedIn ? "" : `<button class="secondary" data-action="wechat-login">${icon("message-circle")}${data!.wechatIlink.QRDataURL ? "重新获取二维码" : "扫码连接微信"}</button>`}</div>` : `<div class="field-wrap ${channel.Enabled ? "" : "disabled"}"><label for="endpoint">${provider.inputLabel}</label><input id="endpoint" value="${escape(endpoint(channel))}" placeholder="${provider.placeholder}" ${channel.Enabled ? "" : "disabled"} autocomplete="off" spellcheck="false"></div>${credential ? `<div class="field-wrap credential-field ${channel.Enabled ? "" : "disabled"}"><label for="credential">${credential.label}</label><input id="credential" type="password" value="" placeholder="${credentialSaved ? "已保存，留空保持不变" : credential.placeholder}" ${channel.Enabled ? "" : "disabled"} autocomplete="new-password" spellcheck="false"></div>` : ""}`;
+  return `<section class="workspace channels-workspace"><div class="page-intro"><div><p class="eyebrow">远程通知</p><h1>选择你的送达渠道</h1></div><span class="delivery-count">${providers.filter((provider) => connected(data!.config.Remote[provider.key], provider.key)).length} 个已配置</span></div><div class="provider-picker">${providers
     .map((item) => {
       const itemChannel = data!.config.Remote[item.key];
-      return `<button class="provider ${selected === item.key ? "selected" : ""}" data-provider="${item.key}" title="${item.label}"><span class="provider-icon">${icon(item.icon)}</span><span>${item.label}</span>${connected(itemChannel) ? "<b></b>" : ""}</button>`;
+      return `<button class="provider ${selected === item.key ? "selected" : ""}" data-provider="${item.key}" title="${item.label}"><span class="provider-icon">${icon(item.icon)}</span><span>${item.label}</span>${connected(itemChannel, item.key) ? "<b></b>" : ""}</button>`;
     })
     .join(
       "",
-    )}</div><section class="configuration-panel"><div class="provider-summary"><span class="summary-icon">${icon(provider.icon)}</span><div><h2>${provider.label}</h2><p>${provider.hint}</p></div><label class="switch" title="启用 ${provider.label}"><input type="checkbox" data-channel-enabled ${channel.Enabled ? "checked" : ""}><span></span></label></div><div class="setup-guide"><p>${provider.guide}</p><a href="${provider.docs}" target="_blank" rel="noreferrer">打开官方说明 ${icon("chevron-right")}</a></div><div class="field-wrap ${channel.Enabled ? "" : "disabled"}"><label for="endpoint">${provider.inputLabel}</label><input id="endpoint" value="${escape(endpoint(channel))}" placeholder="${provider.placeholder}" ${channel.Enabled ? "" : "disabled"} autocomplete="off" spellcheck="false"></div>${credential ? `<div class="field-wrap credential-field ${channel.Enabled ? "" : "disabled"}"><label for="credential">${credential.label}</label><input id="credential" type="password" value="" placeholder="${credentialSaved ? "已保存，留空保持不变" : credential.placeholder}" ${channel.Enabled ? "" : "disabled"} autocomplete="new-password" spellcheck="false"></div>` : ""}<div class="panel-actions"><span class="connection-state ${active ? "ready" : ""}">${active ? `${icon("circle-check")} 已配置` : "尚未配置"}</span><div><button class="secondary" data-action="test" ${active ? "" : "disabled"}>${icon("send")}发送测试</button><button class="primary" data-action="save">${icon("save")}保存更改</button></div></div></section></section>`;
+    )}</div><section class="configuration-panel"><div class="provider-summary"><span class="summary-icon">${icon(provider.icon)}</span><div><h2>${provider.label}</h2><p>${provider.hint}</p></div><label class="switch" title="启用 ${provider.label}"><input type="checkbox" data-channel-enabled ${channel.Enabled ? "checked" : ""}><span></span></label></div>${setupGuide}${ilinkPanel}<div class="panel-actions"><span class="connection-state ${active ? "ready" : ""}">${active ? `${icon("circle-check")} 已连接` : "尚未配置"}</span><div>${isIlink && data!.wechatIlink.LoggedIn ? `<button class="secondary" data-action="wechat-reconnect">${icon("refresh-cw")}重新连接</button>` : ""}<button class="secondary" data-action="test" ${active ? "" : "disabled"}>${icon("send")}发送测试</button>${isIlink ? "" : `<button class="primary" data-action="save">${icon("save")}保存更改</button>`}</div></div></section></section>`;
 }
 function settingsPage() {
-  return `<section class="workspace settings-workspace"><aside class="settings-nav"><button class="settings-item ${setting === "general" ? "active" : ""}" data-setting="general">${icon("settings-2")}通用</button><button class="settings-item ${setting === "notifications" ? "active" : ""}" data-setting="notifications">${icon("bell-ring")}通知</button><button class="settings-item ${setting === "appearance" ? "active" : ""}" data-setting="appearance">${icon("palette")}外观</button><button class="settings-item ${setting === "advanced" ? "active" : ""}" data-setting="advanced">${icon("gauge")}高级</button></aside><section class="settings-content">${setting === "general" ? generalSettings() : setting === "notifications" ? notificationSettings() : setting === "appearance" ? appearanceSettings() : advancedSettings()}</section></section>`;
+  return `<section class="workspace settings-workspace"><aside class="settings-nav"><button class="settings-item ${setting === "general" ? "active" : ""}" data-setting="general">${icon("settings-2")}通用</button><button class="settings-item ${setting === "notifications" ? "active" : ""}" data-setting="notifications">${icon("bell-ring")}通知</button><button class="settings-item ${setting === "logs" ? "active" : ""}" data-setting="logs">${icon("scroll-text")}日志</button><button class="settings-item ${setting === "appearance" ? "active" : ""}" data-setting="appearance">${icon("palette")}外观</button><button class="settings-item ${setting === "advanced" ? "active" : ""}" data-setting="advanced">${icon("gauge")}高级</button></aside><section class="settings-content">${setting === "general" ? generalSettings() : setting === "notifications" ? notificationSettings() : setting === "logs" ? logsSettings() : setting === "appearance" ? appearanceSettings() : advancedSettings()}</section></section>`;
 }
 function settingHeader(title: string, description: string) {
   return `<div class="setting-header"><p class="eyebrow">设置</p><h1>${title}</h1><p>${description}</p></div>`;
@@ -278,18 +339,25 @@ function advancedSettings() {
   const seconds = data!.config.Behavior.DedupeSeconds;
   return `${settingHeader("高级", "控制远程通知的投递节奏。")}<div class="setting-list"><label class="setting-row select-row"><div><h2>重复提醒间隔</h2><p>同一会话的相同通知在这段时间内只发送一次。</p></div><select data-dedupe><option value="10" ${seconds === 10 ? "selected" : ""}>10 秒</option><option value="30" ${seconds === 30 ? "selected" : ""}>30 秒</option><option value="60" ${seconds === 60 ? "selected" : ""}>60 秒</option></select></label></div><div class="advanced-actions"><button class="primary" data-action="save-dedupe">${icon("save")}保存更改</button></div>`;
 }
+function logsSettings() {
+  const lines = filterLogs(data!.logs, logFilter).reverse();
+  const filters = (["all", "info", "warning", "error"] as const).map((level) => `<button class="log-filter ${logFilter === level ? "active" : ""}" data-log-filter="${level}">${level === "all" ? "全部" : level === "info" ? "普通" : level === "warning" ? "警告" : "错误"}</button>`).join("");
+  const rows = lines.length ? lines.map((line) => { const level = classifyLog(line); return `<div class="log-entry log-${level}"><span class="log-level">${level === "error" ? "错误" : level === "warning" ? "警告" : "普通"}</span><code>${escape(line)}</code></div>`; }).join("") : `<div class="log-empty">暂无后台日志</div>`;
+  return `${settingHeader("日志", "查看 Agent Notify 的后台运行记录。")}<div class="logs-toolbar"><div class="log-filters">${filters}</div><button class="secondary" data-action="refresh-logs">${icon("refresh-cw")}刷新</button></div><div class="log-list">${rows}</div><p class="log-meta">显示最近 ${lines.length} 条，共 ${data!.logs.length} 条</p>`;
+}
 async function refresh() {
   notice = "";
   render();
   try {
     await autoSetup();
-		const [nextConfig, nextAutostart, nextHideWindowOnClose, nextSystemNotifications, nextClickToFocus, nextCodexHook] = await Promise.all([
+		const [nextConfig, nextAutostart, nextHideWindowOnClose, nextSystemNotifications, nextClickToFocus, nextCodexHook, nextLogs] = await Promise.all([
 			config(),
 			autostart(),
 			hideWindowOnClose(),
 			systemNotifications(),
 			clickToFocus(),
 			codexHookStatus(),
+			logs(),
 	    ]);
 		systemNotificationsEnabled = nextSystemNotifications;
 	    data = {
@@ -298,9 +366,11 @@ async function refresh() {
 			hideWindowOnClose: nextHideWindowOnClose,
 			clickToFocus: nextClickToFocus,
 			codexHook: nextCodexHook,
+			wechatIlink: await wechatIlinkStatus().catch(() => ({LoggedIn:false, Bound:false})),
+			logs: nextLogs,
 	    };
   } catch (error) {
-    notice = `无法连接 Docker Bridge: ${String(error)}`;
+    showNotice(`无法连接 Docker Bridge: ${String(error)}`, "error");
   }
   render();
 }
@@ -312,6 +382,13 @@ async function saveChannel() {
   channel.Enabled =
     app.querySelector<HTMLInputElement>("[data-channel-enabled]")?.checked ??
     false;
+  if (selected === "WechatIlink") {
+    await saveConfig(next);
+    data.config = next;
+    notice = "个人微信通道已保存";
+    render();
+    return;
+  }
   const value =
     app.querySelector<HTMLInputElement>("#endpoint")?.value.trim() ?? "";
   if (selected === "Ntfy") channel.TopicURL = value;
@@ -367,6 +444,22 @@ function bind() {
       render();
     }),
   );
+  app.querySelectorAll<HTMLElement>("[data-log-filter]").forEach((element) =>
+    element.addEventListener("click", () => {
+      logFilter = element.dataset.logFilter as "all" | LogLevel;
+      render();
+    }),
+  );
+  app.querySelector('[data-action="refresh-logs"]')?.addEventListener("click", async () => {
+    try {
+      if (data) data.logs = await logs();
+      showNotice("日志已刷新");
+      render();
+    } catch (error) {
+      showNotice(`日志读取失败: ${String(error)}`, "error");
+      render();
+    }
+  });
   app.querySelector('[data-action="theme"]')?.addEventListener("click", () => {
     theme = isDarkTheme() ? "light" : "dark";
     render();
@@ -394,7 +487,7 @@ function bind() {
   app
     .querySelector<HTMLInputElement>("[data-channel-enabled]")
     ?.addEventListener("change", render);
-  app.querySelector('[data-action="save"]')?.addEventListener(
+	app.querySelector('[data-action="save"]')?.addEventListener(
     "click",
     () =>
       void saveChannel().catch((error) => {
@@ -402,16 +495,40 @@ function bind() {
         render();
       }),
   );
+  const beginWechatLogin = async (reconnect = false) => {
+    try {
+      if (!data) return;
+		const next = structuredClone(data.config);
+		next.Remote.WechatIlink.Enabled = true;
+		await saveConfig(next);
+		data.config = next;
+	  data.wechatIlink = await (reconnect ? reconnectWechatIlink() : startWechatIlinkLogin());
+      notice = "请扫码，并从微信给机器人发一条消息完成绑定";
+      render();
+      const poll = async () => {
+        if (!data || selected !== "WechatIlink" || data.wechatIlink.Bound) return;
+        await pollWechatIlinkLogin().catch(() => undefined);
+        data.wechatIlink = await wechatIlinkStatus().catch(() => data!.wechatIlink);
+        render();
+        if (!data.wechatIlink.Bound) window.setTimeout(() => void poll(), 2000);
+      };
+      window.setTimeout(() => void poll(), 1000);
+    } catch (error) { notice = `微信连接失败: ${String(error)}`; render(); }
+  };
+  app.querySelector('[data-action="wechat-login"]')?.addEventListener("click", () => void beginWechatLogin());
+  app.querySelector('[data-action="wechat-reconnect"]')?.addEventListener("click", () => void beginWechatLogin(true));
   app
     .querySelector('[data-action="test"]')
     ?.addEventListener("click", async () => {
       try {
         await sendTestChannel(
-          selected.toLowerCase().replace("wechatwork", "wechat-work"),
+          selected.toLowerCase().replace("wechatwork", "wechat-work").replace("wechatilink", "wechat-ilink"),
         );
+        if (selected === "WechatIlink" && data) data.wechatIlink = await wechatIlinkStatus();
         notice = "测试通知已发送";
         render();
       } catch (error) {
+        if (selected === "WechatIlink" && data) data.wechatIlink = await wechatIlinkStatus().catch(() => data!.wechatIlink);
         notice = `测试失败: ${String(error)}`;
         render();
       }

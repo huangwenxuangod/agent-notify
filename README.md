@@ -136,6 +136,25 @@ On first run, the launcher downloads the platform-specific binary matching the c
 
 On every subsequent run it checks the local binary version: it downloads if missing, updates if outdated, and otherwise runs directly. The launcher never persistently modifies `PATH` — it always executes via an absolute path.
 
+### Windows deployment
+
+Docker control-plane and the native desktop runtime are separate. On Windows, run PowerShell from the repository root:
+
+```powershell
+.\deploy.ps1 up
+.\deploy.ps1 desktop
+```
+
+The script builds `agent-notify.exe` and `Agent Notify.exe`, installs the user-level startup entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, and starts the desktop app. The app stays in the tray by default; use the tray menu to open or quit it. `down`, `restart`, `status`, `logs`, `upgrade`, and `uninstall` mirror `deploy.sh`.
+
+Cross-compiling an EXE on macOS only proves that the Windows build is valid. Toasts, tray behavior, startup, terminal focus, and agent hooks require a Windows 10/11 machine for final acceptance.
+
+### Personal WeChat bot (iLink) versus webhook
+
+The existing `WeChat` channel is a generic webhook gateway for compatibility. It is not a direct personal-WeChat login. The current Tencent-supported personal bot path is the external OpenClaw plugin `@tencent-weixin/openclaw-weixin`, which performs QR login and maintains the iLink long-poll connection. It stores a bot token locally and needs a target `to_user_id` plus a current conversation `context_token` for reliable replies.
+
+Do not paste an iLink token into the generic webhook field. Direct integration should reuse the official OpenClaw plugin/Gateway (or a local sidecar) so QR login, token storage, polling, and context-token refresh remain in the vendor-maintained layer. The first real test is: install the plugin, scan/login, send one message from the target WeChat account to bind the conversation, then send an Agent Notify test event and verify the message arrives. Group-chat support is not advertised by the plugin and is not promised here.
+
 > **Note**: Codex integrates through the official hooks system in `~/.codex/hooks.json` and currently subscribes only to `PermissionRequest` and `Stop`. After first install, run `/hooks` inside Codex to complete the trust review.
 >
 > **Grok**: Writes `~/.grok/hooks/agent-notify.json`. Global hooks are always trusted; project hooks (`.grok/hooks/`) require `/hooks-trust` or `--trust`. After install, run `/hooks` (or `Ctrl+L`) inside Grok to confirm they loaded.

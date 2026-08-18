@@ -303,13 +303,14 @@ func (s *Service) ClearFreeze() error {
 func configuredRemoteChannels(cfg config.Config) []string {
 	remote := cfg.Remote
 	seen := map[string]bool{
-		"feishu":      configuredWebhook(remote.Feishu.Enabled, remote.Feishu.WebhookURL),
-		"wechat":      configuredWebhook(remote.Wechat.Enabled, remote.Wechat.WebhookURL),
-		"wechat-work": configuredWebhook(remote.WechatWork.Enabled, remote.WechatWork.WebhookURL),
-		"dingtalk":    configuredWebhook(remote.DingTalk.Enabled, remote.DingTalk.WebhookURL),
-		"bark":        configuredWebhook(remote.Bark.Enabled, remote.Bark.WebhookURL),
-		"ntfy":        configuredWebhook(remote.Ntfy.Enabled, remote.Ntfy.TopicURL),
-		"slack":       configuredWebhook(remote.Slack.Enabled, remote.Slack.WebhookURL),
+		"feishu":       configuredWebhook(remote.Feishu.Enabled, remote.Feishu.WebhookURL),
+		"wechat":       configuredWebhook(remote.Wechat.Enabled, remote.Wechat.WebhookURL),
+		"wechat-ilink": remote.WechatIlink.Enabled,
+		"wechat-work":  configuredWebhook(remote.WechatWork.Enabled, remote.WechatWork.WebhookURL),
+		"dingtalk":     configuredWebhook(remote.DingTalk.Enabled, remote.DingTalk.WebhookURL),
+		"bark":         configuredWebhook(remote.Bark.Enabled, remote.Bark.WebhookURL),
+		"ntfy":         configuredWebhook(remote.Ntfy.Enabled, remote.Ntfy.TopicURL),
+		"slack":        configuredWebhook(remote.Slack.Enabled, remote.Slack.WebhookURL),
 	}
 	channels := make([]string, 0, len(seen))
 	for _, name := range state.RemoteFreezeChannels {
@@ -344,6 +345,11 @@ func (s *Service) TestRemoteChannel(ctx context.Context, channel string) error {
 		testCfg.Remote.Wechat = cfg.Remote.Wechat
 		if !configuredWebhook(testCfg.Remote.Wechat.Enabled, testCfg.Remote.Wechat.WebhookURL) {
 			return fmt.Errorf("custom webhook channel is not configured")
+		}
+	case "wechat-ilink":
+		testCfg.Remote.WechatIlink = cfg.Remote.WechatIlink
+		if !testCfg.Remote.WechatIlink.Enabled {
+			return fmt.Errorf("wechat ilink channel is not enabled")
 		}
 	case "wechat-work":
 		testCfg.Remote.WechatWork = cfg.Remote.WechatWork

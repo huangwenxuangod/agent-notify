@@ -105,7 +105,7 @@ WorkBuddy 会在 `codebuddy --serve` 进程中缓存 Hook 配置，安装或更�
 |:---:|:---:|:---:|
 | macOS amd64 / arm64 | ✅ | ✅ 源码构建菜单栏应用 |
 | Linux amd64 / arm64 | ✅ | — |
-| Windows amd64 / arm64 | ✅ | — |
+| Windows amd64 / arm64 | ✅ | ✅ 源码构建托盘应用 |
 
 ### 点击聚焦（Click-to-Focus）
 
@@ -131,6 +131,26 @@ bunx agent-notify
 - Windows: `~/.agent-notify/agent-notify.exe`
 
 之后每次运行都会检查本地二进制版本：不存在则自动下载，版本落后则自动更新，否则直接运行。launcher 不会持久修改 PATH，始终用绝对路径执行。
+
+### Windows 部署
+
+Docker 控制面与本机桌面运行时分开运行。在仓库根目录用 PowerShell 执行：
+
+```powershell
+.\deploy.ps1 up
+.\deploy.ps1 desktop
+```
+
+脚本会构建 `agent-notify.exe` 与 `Agent Notify.exe`，写入当前用户的启动项
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，并启动桌面端。桌面端默认驻留系统托盘；可通过托盘菜单打开或退出。`down`、`restart`、`status`、`logs`、`upgrade`、`uninstall` 与 `deploy.sh` 对应。
+
+macOS 上交叉编译出 EXE 只能证明构建通过，Toast、托盘、开机启动、终端聚焦和各 Agent Hook 必须在 Windows 10/11 真机验收。
+
+### 个人微信机器人（iLink）与 Webhook 的区别
+
+仓库现有“微信”通道是兼容用的通用 Webhook，并不是个人微信扫码登录。当前腾讯支持的个人微信机器人路径是 OpenClaw 外部插件 `@tencent-weixin/openclaw-weixin`：它负责扫码登录、保存 bot token，并通过 iLink 长轮询收取消息。可靠发送还需要目标 `to_user_id` 和当前会话的 `context_token`。
+
+不要把 iLink token 粘贴到通用 Webhook 输入框。正式接入应复用官方 OpenClaw 插件/Gateway（或本机 sidecar），让官方层负责扫码、凭据、轮询和 context token 刷新。第一次真实验证流程是：安装插件并扫码登录，由目标微信先发一条消息完成会话绑定，再触发 Agent Notify 测试事件确认收到。官方插件没有声明群聊能力，当前不承诺群聊。
 
 > **注意**: Codex 通过 `~/.codex/hooks.json` 接入官方 hooks 系统，目前仅订阅 `PermissionRequest`、`Stop` 两个事件。首次安装后请在 codex 内运行 `/hooks` 完成 trust 审核。
 >

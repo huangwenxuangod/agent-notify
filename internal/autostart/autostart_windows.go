@@ -5,6 +5,7 @@ package autostart
 import (
 	"golang.org/x/sys/windows/registry"
 	"os"
+	"strings"
 )
 
 type windowsManager struct{ binary string }
@@ -25,7 +26,7 @@ func (w *windowsManager) Enable() error {
 		return e
 	}
 	defer k.Close()
-	return k.SetStringValue("AgentNotifyTray", w.binary+" tray")
+	return k.SetStringValue("AgentNotifyTray", startupCommand(w.binary))
 }
 func (w *windowsManager) Disable() error {
 	k, e := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
@@ -38,4 +39,12 @@ func (w *windowsManager) Disable() error {
 		return nil
 	}
 	return e
+}
+
+func startupCommand(binary string) string {
+	binary = strings.TrimSpace(binary)
+	if strings.HasPrefix(binary, `"`) && strings.HasSuffix(binary, `"`) {
+		return binary + " tray"
+	}
+	return `"` + strings.ReplaceAll(binary, `"`, `\"`) + `" tray`
 }

@@ -21,6 +21,7 @@ const freezeFileName = "freeze.json"
 var RemoteFreezeChannels = []string{
 	"feishu",
 	"wechat",
+	"wechat-ilink",
 	"wechat-work",
 	"dingtalk",
 	"bark",

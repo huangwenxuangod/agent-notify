@@ -131,13 +131,20 @@ type ChannelsConfig struct {
 // RemoteDeliveryConfig is shared by every Agent. System notifications remain
 // host-local because containers cannot access the host notification center.
 type RemoteDeliveryConfig struct {
-	Feishu     FeishuWebhookConfig     `yaml:"feishu"`
-	Wechat     WechatChannelConfig     `yaml:"wechat"`
-	WechatWork WechatWorkChannelConfig `yaml:"wechat_work"`
-	DingTalk   DingTalkChannelConfig   `yaml:"dingtalk"`
-	Bark       BarkChannelConfig       `yaml:"bark"`
-	Ntfy       NtfyChannelConfig       `yaml:"ntfy"`
-	Slack      SlackChannelConfig      `yaml:"slack"`
+	Feishu      FeishuWebhookConfig      `yaml:"feishu"`
+	Wechat      WechatChannelConfig      `yaml:"wechat"`
+	WechatIlink WechatIlinkChannelConfig `yaml:"wechat_ilink"`
+	WechatWork  WechatWorkChannelConfig  `yaml:"wechat_work"`
+	DingTalk    DingTalkChannelConfig    `yaml:"dingtalk"`
+	Bark        BarkChannelConfig        `yaml:"bark"`
+	Ntfy        NtfyChannelConfig        `yaml:"ntfy"`
+	Slack       SlackChannelConfig       `yaml:"slack"`
+}
+
+// WechatIlinkChannelConfig enables the local personal-WeChat iLink bridge.
+// Credentials and recipient binding stay in the bridge state file, never config.yaml.
+type WechatIlinkChannelConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type FeishuWebhookConfig struct {
@@ -345,13 +352,14 @@ func Default() Config {
 		// A channel is ready to configure from the first launch. Delivery still
 		// requires a non-empty endpoint, so these defaults never emit a message.
 		Remote: RemoteDeliveryConfig{
-			Feishu:     FeishuWebhookConfig{Enabled: true},
-			Wechat:     WechatChannelConfig{Enabled: true},
-			WechatWork: WechatWorkChannelConfig{Enabled: true},
-			DingTalk:   DingTalkChannelConfig{Enabled: true},
-			Bark:       BarkChannelConfig{Enabled: true},
-			Ntfy:       NtfyChannelConfig{Enabled: true},
-			Slack:      SlackChannelConfig{Enabled: true},
+			Feishu:      FeishuWebhookConfig{Enabled: true},
+			Wechat:      WechatChannelConfig{Enabled: true},
+			WechatIlink: WechatIlinkChannelConfig{Enabled: false},
+			WechatWork:  WechatWorkChannelConfig{Enabled: true},
+			DingTalk:    DingTalkChannelConfig{Enabled: true},
+			Bark:        BarkChannelConfig{Enabled: true},
+			Ntfy:        NtfyChannelConfig{Enabled: true},
+			Slack:       SlackChannelConfig{Enabled: true},
 		},
 		Behavior: BehaviorConfig{
 			DedupeSeconds:      10,

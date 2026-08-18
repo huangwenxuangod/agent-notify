@@ -48,6 +48,9 @@ desktop() {
     exit 1
   fi
   chmod 755 "$hook_binary"
+  mkdir -p "$HOME/.agent-notify/wechat-ilink"
+  cp -R "$ROOT_DIR/wechat-ilink/src" "$ROOT_DIR/wechat-ilink/package.json" "$ROOT_DIR/wechat-ilink/bun.lock" "$HOME/.agent-notify/wechat-ilink/"
+  (cd "$HOME/.agent-notify/wechat-ilink" && bun install --frozen-lockfile --production)
   # Pi auto-discovers a managed user extension, but it does not reload its
   # source from Agent Notify on its own. Refresh an existing installation when
   # rebuilding the hook runtime so lifecycle fixes ship with desktop updates.
@@ -61,6 +64,7 @@ desktop() {
   # Hide-on-close is the normal runtime mode, so AppleScript quit may only
   # hide the window. Stop the exact old executable before replacing its memory.
   pkill -TERM -f -- "$executable" 2>/dev/null || true
+  pkill -TERM -f -- "$HOME/.agent-notify/wechat-ilink/src/bridge.ts" 2>/dev/null || true
   for _ in 1 2 3 4 5; do
     pgrep -f "$executable" >/dev/null || break
     sleep 1

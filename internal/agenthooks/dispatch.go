@@ -309,6 +309,9 @@ func buildRemoteSenders(cfg config.Config, msg notify.Message) []notify.Sender {
 	if remote.Wechat.Enabled && remote.Wechat.WebhookURL != "" {
 		senders = append(senders, notify.NewWechatSender(remote.Wechat.WebhookURL))
 	}
+	if remote.WechatIlink.Enabled {
+		senders = append(senders, notify.NewWechatIlinkSender(""))
+	}
 	if remote.WechatWork.Enabled && remote.WechatWork.WebhookURL != "" {
 		senders = append(senders, notify.NewWechatWorkSender(remote.WechatWork.WebhookURL))
 	}

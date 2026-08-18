@@ -2,7 +2,8 @@ export type AgentStatus={id:string;name:string;installed:boolean;hook_installed:
 export type EventRecord={id:string;timestamp:string;agent:string;event:string;title:string;body:string;result:string};
 export type Channel={Enabled:boolean;ClickToFocus?:boolean;WebhookURL?:string;TopicURL?:string;SigningSecret?:string;AccessToken?:string};
 export type AgentNotify={Events:string[];Channels:Record<string,Channel>};
-export type RemoteDelivery={Feishu:Channel;Wechat:Channel;WechatWork:Channel;DingTalk:Channel;Bark:Channel;Ntfy:Channel;Slack:Channel};
+export type RemoteDelivery={Feishu:Channel;Wechat:Channel;WechatIlink:Channel;WechatWork:Channel;DingTalk:Channel;Bark:Channel;Ntfy:Channel;Slack:Channel};
+export type WechatIlinkStatus={LoggedIn:boolean;Bound:boolean;UserID?:string;QRURL?:string;QRDataURL?:string;Status?:string;LastDeliveryAt?:string;LastDeliveryError?:string};
 export type Config={Version:number;Agent:Record<string,{Enabled:boolean;InstallScope:string}>;Notify:Record<string,AgentNotify>;Remote:RemoteDelivery;Behavior:{DedupeSeconds:number;SendTimeoutSeconds:number;Locale:string}};
 export type AutostartStatus={Supported:boolean;Enabled:boolean;Platform:string;Path?:string;Error?:string};
 export type HookRuntimeStatus={installed:boolean;last_event_at?:string;last_event?:string};
@@ -13,6 +14,7 @@ declare global { interface Window { go?: { main?: { App?: {
   Install:(agents:string[],scope:string)=>Promise<unknown>;
   Uninstall:(agents:string[],scope:string)=>Promise<unknown>;
   Events:()=>Promise<EventRecord[]>;
+  Logs:()=>Promise<string[]>;
   Config:()=>Promise<Config>;
   SaveConfig:(config:Config)=>Promise<void>;
   SendTest:(agent:string)=>Promise<void>;
@@ -29,7 +31,11 @@ declare global { interface Window { go?: { main?: { App?: {
   ClickToFocus:()=>Promise<boolean>;
 	SetClickToFocus:(enabled:boolean)=>Promise<void>;
 	SystemNotifications:()=>Promise<boolean>;
-	SetSystemNotifications:(enabled:boolean)=>Promise<void>;
+  SetSystemNotifications:(enabled:boolean)=>Promise<void>;
+  WechatIlinkStatus:()=>Promise<WechatIlinkStatus>;
+  StartWechatIlinkLogin:()=>Promise<WechatIlinkStatus>;
+  ReconnectWechatIlink:()=>Promise<WechatIlinkStatus>;
+  PollWechatIlinkLogin:()=>Promise<WechatIlinkStatus>;
 } } } } }
 
 const app=()=>window.go?.main?.App;
@@ -43,6 +49,7 @@ export const autoSetup=()=>call<AgentStatus[]>('AutoSetup');
 export const install=(agents:string[],scope:string)=>call<unknown>('Install',agents,scope);
 export const uninstall=(agents:string[],scope:string)=>call<unknown>('Uninstall',agents,scope);
 export const events=()=>call<EventRecord[]>('Events');
+export const logs=()=>call<string[]>('Logs');
 export const config=()=>call<Config>('Config');
 export const saveConfig=(value:Config)=>call<void>('SaveConfig',value);
 export const sendTest=(agent:string)=>call<void>('SendTest',agent);
@@ -60,3 +67,12 @@ export const clickToFocus=()=>call<boolean>('ClickToFocus');
 export const setClickToFocus=(enabled:boolean)=>call<void>('SetClickToFocus',enabled);
 export const systemNotifications=()=>call<boolean>('SystemNotifications');
 export const setSystemNotifications=(enabled:boolean)=>call<void>('SetSystemNotifications',enabled);
+import { normalizeWechatIlinkStatus } from "./wechat-ilink-status";
+
+const wechatIlinkCall=(name:"WechatIlinkStatus"|"StartWechatIlinkLogin"|"ReconnectWechatIlink"|"PollWechatIlinkLogin") =>
+  call<unknown>(name).then((value) => normalizeWechatIlinkStatus(value as Parameters<typeof normalizeWechatIlinkStatus>[0]));
+
+export const wechatIlinkStatus=()=>wechatIlinkCall('WechatIlinkStatus');
+export const startWechatIlinkLogin=()=>wechatIlinkCall('StartWechatIlinkLogin');
+export const reconnectWechatIlink=()=>wechatIlinkCall('ReconnectWechatIlink');
+export const pollWechatIlinkLogin=()=>wechatIlinkCall('PollWechatIlinkLogin');

@@ -3,6 +3,7 @@ package agenthooks
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hellolib/agent-notify/internal/config"
@@ -18,29 +19,41 @@ func RetryRemoteOutbox(ctx context.Context, cfg config.Config, statePath string,
 	if err != nil {
 		return 0, err
 	}
-	completed := 0
-	for _, item := range items {
-		msg := notify.Message{Agent: item.Agent, Event: item.Event, SessionID: item.SessionID, TurnID: item.TurnID, RunID: item.RunID, SourceEvent: item.SourceEvent, Workspace: item.Workspace, Title: item.Title, Body: item.Body}
-		senders := selectSenders(buildRemoteSenders(cfg, msg), item.Channels)
-		if len(senders) == 0 {
-			if err := outbox.Remove(item.ID); err != nil {
-				return completed, err
-			}
-			completed++
-			continue
-		}
-		if err := send(ctx, msg, senders); err != nil {
-			if saveErr := outbox.Reschedule(item, err.Error(), time.Now()); saveErr != nil {
-				return completed, fmt.Errorf("reschedule remote retry: %w", saveErr)
-			}
-			continue
-		}
-		if err := outbox.Remove(item.ID); err != nil {
-			return completed, err
-		}
-		completed++
+	if len(items) == 0 {
+		return 0, nil
 	}
-	return completed, nil
+	// Process one record per tick. Remote providers can rate-limit a burst of
+	// historical notifications even when each item has its own retry delay.
+	item := items[0]
+	msg := notify.Message{Agent: item.Agent, Event: item.Event, SessionID: item.SessionID, TurnID: item.TurnID, RunID: item.RunID, SourceEvent: item.SourceEvent, Workspace: item.Workspace, Title: item.Title, Body: item.Body}
+	senders := selectSenders(buildRemoteSenders(cfg, msg), item.Channels)
+	if len(senders) == 0 {
+		if err := outbox.Remove(item.ID); err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
+	if err := send(ctx, msg, senders); err != nil {
+		if isPermanentRemotePrecondition(err) {
+			if removeErr := outbox.Remove(item.ID); removeErr != nil {
+				return 0, removeErr
+			}
+			return 1, nil
+		}
+		if saveErr := outbox.Reschedule(item, err.Error(), time.Now()); saveErr != nil {
+			return 0, fmt.Errorf("reschedule remote retry: %w", saveErr)
+		}
+		return 0, nil
+	}
+	if err := outbox.Remove(item.ID); err != nil {
+		return 0, err
+	}
+	return 1, nil
+}
+
+func isPermanentRemotePrecondition(err error) bool {
+	text := err.Error()
+	return strings.Contains(text, "returned 401") || strings.Contains(text, "returned 409")
 }
 
 func selectSenders(senders []notify.Sender, names []string) []notify.Sender {
