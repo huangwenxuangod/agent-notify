@@ -3,9 +3,9 @@ import { join } from "node:path";
 import QRCode from "qrcode";
 
 type Session = { botToken: string; baseUrl: string };
-type Binding = { userId: string; contextToken?: string };
+type Binding = { userId: string; contextToken?: string; contextUpdatedAt?: string };
 type PendingLogin = { qrcode: string; qrUrl: string; qrDataURL: string };
-type PersistedState = { session?: Session; binding?: Binding; pending?: PendingLogin; sessionExpired?: boolean; lastDeliveryAt?: string; lastDeliveryError?: string };
+type PersistedState = { session?: Session; binding?: Binding; pending?: PendingLogin; syncBuf?: string; sessionExpired?: boolean; lastDeliveryAt?: string; lastDeliveryError?: string };
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export type BridgeOptions = { stateDir: string; fetchImpl?: FetchLike; startMonitor?: boolean };
@@ -14,6 +14,7 @@ export type IlinkBridge = {
   handle(request: Request): Promise<Response>;
   setSession(session: Session): Promise<void>;
   bind(binding: Binding): Promise<void>;
+  stop(): Promise<void>;
 };
 
 const stateFile = "wechat-ilink.json";
@@ -31,6 +32,9 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
   let state = await loadState(path);
   let sendTail: Promise<void> = Promise.resolve();
   let nextSendAt = 0;
+  let monitorRunning = false;
+  let lifecycleStarted = false;
+  let lifecycleReady: Promise<void> | undefined;
 
   const save = async () => {
     await writeFile(path, JSON.stringify(state, null, 2), "utf8");
@@ -60,34 +64,79 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
     await save();
   };
 
+  const notifyLifecycle = async (session: Session, endpoint: "notifystart" | "notifystop") => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetchImpl(`${session.baseUrl.replace(/\/$/, "")}/ilink/bot/msg/${endpoint}`, {
+        method: "POST",
+        headers: ilinkHeaders(session.botToken),
+        body: JSON.stringify({ base_info: { channel_version: channelVersion } }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`iLink ${endpoint} HTTP ${response.status}`);
+      const result = await response.json().catch(() => ({ ret: 0 })) as { ret?: number; errcode?: number; errmsg?: string };
+      if ((result.ret && result.ret !== 0) || (result.errcode && result.errcode !== 0)) {
+        throw new Error(result.errmsg ?? `iLink ${endpoint} ret=${result.ret ?? result.errcode}`);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const monitor = async () => {
-    let cursor = "";
-    while (state.session) {
+    if (monitorRunning || !state.session) return;
+    monitorRunning = true;
+    const sessionAtStart = state.session;
+    try {
+      lifecycleReady = notifyLifecycle(sessionAtStart, "notifystart");
       try {
-        const session = state.session;
-        const response = await fetchImpl(`${session.baseUrl.replace(/\/$/, "")}/ilink/bot/getupdates`, {
-          method: "POST",
-          headers: ilinkHeaders(session.botToken),
-          body: JSON.stringify({ get_updates_buf: cursor, base_info: { channel_version: channelVersion } }),
-        });
-        if (!response.ok) throw new Error(`getupdates HTTP ${response.status}`);
-        const payload = await response.json() as { ret?: number; errcode?: number; msgs?: Array<{ message_type?: number; from_user_id?: string; context_token?: string }>; get_updates_buf?: string };
-        if (payload.errcode === staleSessionErrorCode || payload.ret === staleSessionErrorCode) {
-          await markSessionExpired();
-          return;
-        }
-        if (payload.ret && payload.ret !== 0) throw new Error(`getupdates ret=${payload.ret}`);
-        if (payload.get_updates_buf) cursor = payload.get_updates_buf;
-        for (const message of payload.msgs ?? []) {
-          if (message.message_type !== 1 || !message.from_user_id) continue;
-          if (!state.binding || state.binding.userId === message.from_user_id) {
-            state.binding = { userId: message.from_user_id, contextToken: message.context_token };
+        await lifecycleReady;
+        lifecycleStarted = true;
+      } catch (error) {
+        state.lastDeliveryError = `iLink 通知监听启动失败：${describeNetworkError(error)}`;
+        await save();
+      }
+      let cursor = state.syncBuf ?? "";
+      while (monitorRunning && state.session === sessionAtStart) {
+        try {
+          const session = state.session;
+          if (!session) break;
+          const response = await fetchImpl(`${session.baseUrl.replace(/\/$/, "")}/ilink/bot/getupdates`, {
+            method: "POST",
+            headers: ilinkHeaders(session.botToken),
+            body: JSON.stringify({ get_updates_buf: cursor, base_info: { channel_version: channelVersion } }),
+          });
+          if (!response.ok) throw new Error(`getupdates HTTP ${response.status}`);
+          const payload = await response.json() as { ret?: number; errcode?: number; msgs?: Array<{ message_type?: number; from_user_id?: string; context_token?: string }>; get_updates_buf?: string };
+          if (payload.errcode === staleSessionErrorCode || payload.ret === staleSessionErrorCode) {
+            await markSessionExpired();
+            return;
+          }
+          if (payload.ret && payload.ret !== 0) throw new Error(`getupdates ret=${payload.ret}`);
+          if (payload.get_updates_buf) {
+            cursor = payload.get_updates_buf;
+            state.syncBuf = cursor;
             await save();
           }
+          for (const message of payload.msgs ?? []) {
+            if (message.message_type !== 1 || !message.from_user_id) continue;
+            if (!state.binding || state.binding.userId === message.from_user_id) {
+              const previous = state.binding;
+              state.binding = {
+                userId: message.from_user_id,
+                contextToken: message.context_token ?? previous?.contextToken,
+                contextUpdatedAt: message.context_token ? new Date().toISOString() : previous?.contextUpdatedAt,
+              };
+              await save();
+            }
+          }
+        } catch {
+          if (monitorRunning) await new Promise((resolve) => setTimeout(resolve, 3000));
         }
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
+    } finally {
+      monitorRunning = false;
     }
   };
 
@@ -102,9 +151,26 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
     await save();
   };
 
+  const stop = async () => {
+    monitorRunning = false;
+    const session = state.session;
+    if (!session) return;
+    try {
+      if (lifecycleReady) await lifecycleReady.catch(() => undefined);
+      if (!lifecycleStarted) return;
+      await notifyLifecycle(session, "notifystop");
+    } catch (error) {
+      state.lastDeliveryError = `iLink 通知监听停止失败：${describeNetworkError(error)}`;
+      await save();
+    } finally {
+      lifecycleStarted = false;
+    }
+  };
+
   return {
     setSession,
     bind,
+    stop,
     async handle(request) {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
@@ -113,8 +179,11 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
           bound: Boolean(state.binding),
           session_expired: Boolean(state.sessionExpired),
           user_id: state.binding?.userId,
+          context_updated_at: state.binding?.contextUpdatedAt,
+          monitor_cursor_present: Boolean(state.syncBuf),
           last_delivery_at: state.lastDeliveryAt,
           last_delivery_error: state.lastDeliveryError,
+          delivery_state: !state.session ? "logged_out" : state.sessionExpired ? "session_expired" : !state.binding ? "unbound" : state.lastDeliveryError && /prepare failed|ret=-2/i.test(state.lastDeliveryError) ? "context_stale" : "ready",
         });
       }
       if (request.method === "GET" && url.pathname === "/login") {
@@ -122,9 +191,12 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
       }
       if (request.method === "POST" && (url.pathname === "/login" || url.pathname === "/reconnect")) {
         if (url.pathname === "/reconnect") {
+          monitorRunning = false;
+          lifecycleStarted = false;
           state.session = undefined;
           state.binding = undefined;
           state.pending = undefined;
+          state.syncBuf = undefined;
           state.sessionExpired = false;
           state.lastDeliveryAt = undefined;
           state.lastDeliveryError = undefined;
@@ -168,21 +240,31 @@ export async function createBridge(options: BridgeOptions): Promise<IlinkBridge>
 
       const message = await request.json() as { title?: string; content?: string };
       const text = [message.title, message.content].filter(Boolean).join("\n");
-      const payload = JSON.stringify({
+      const clientID = `agent-notify-${crypto.randomUUID()}`;
+      const payloadFor = (contextToken?: string) => JSON.stringify({
         msg: {
           from_user_id: "",
           to_user_id: state.binding!.userId,
-          client_id: `agent-notify-${crypto.randomUUID()}`,
+          client_id: clientID,
           message_type: 2,
           message_state: 2,
-          context_token: state.binding!.contextToken,
+          context_token: contextToken,
           item_list: [{ type: 1, text_item: { text } }],
         },
         base_info: { channel_version: channelVersion, bot_agent: "AgentNotify/1.0" },
       });
       let response: Response;
       try {
-        response = await withSendCooldown(() => fetchWithRetry(fetchImpl, `${state.session!.baseUrl.replace(/\/$/, "")}/ilink/bot/sendmessage`, ilinkHeaders(state.session!.botToken), payload));
+        response = await withSendCooldown(async () => {
+          const url = `${state.session!.baseUrl.replace(/\/$/, "")}/ilink/bot/sendmessage`;
+          const headers = ilinkHeaders(state.session!.botToken);
+          const first = await fetchWithRetry(fetchImpl, url, headers, payloadFor(state.binding!.contextToken));
+          const firstResult = await first.clone().json().catch(() => ({})) as { ret?: number; errmsg?: string };
+          if (isStaleContextFailure(firstResult)) {
+            return fetchWithRetry(fetchImpl, url, headers, payloadFor());
+          }
+          return first;
+        });
       } catch (error) {
         state.lastDeliveryError = describeNetworkError(error);
         await save();
@@ -253,6 +335,11 @@ function describeNetworkError(error: unknown): string {
   return `iLink 网络请求失败${code ? `：${code}` : ""}`;
 }
 
+function isStaleContextFailure(result: { ret?: number; errmsg?: string }): boolean {
+  if (result.ret !== -2) return false;
+  return !result.errmsg || /prepare failed|unknown error/i.test(result.errmsg);
+}
+
 async function loadState(path: string): Promise<PersistedState> {
   try {
     return JSON.parse(await readFile(path, "utf8")) as PersistedState;
@@ -274,6 +361,15 @@ if (import.meta.main) {
   const stateDir = process.env.AGENT_NOTIFY_STATE_DIR ?? `${process.env.HOME ?? process.env.USERPROFILE}/.agent-notify`;
   const port = Number(process.env.AGENT_NOTIFY_ILINK_PORT ?? "45176");
   const bridge = await createBridge({ stateDir });
-  Bun.serve(bridgeServerOptions(bridge, port));
+  const server = Bun.serve(bridgeServerOptions(bridge, port));
+  let stopping = false;
+  const shutdown = async () => {
+    if (stopping) return;
+    stopping = true;
+    await bridge.stop();
+    server.stop(true);
+  };
+  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", () => void shutdown());
   console.log(`Agent Notify WeChat iLink bridge listening on http://127.0.0.1:${port}`);
 }

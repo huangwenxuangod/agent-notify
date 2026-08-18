@@ -508,11 +508,21 @@ func (a *App) startWechatIlinkBridge() {
 
 func (a *App) stopWechatIlinkBridge() {
 	a.ilinkMu.Lock()
-	defer a.ilinkMu.Unlock()
-	if a.ilinkProcess != nil && a.ilinkProcess.Process != nil {
-		_ = a.ilinkProcess.Process.Kill()
-		a.ilinkProcess = nil
+	cmd := a.ilinkProcess
+	a.ilinkProcess = nil
+	a.ilinkMu.Unlock()
+	if cmd == nil || cmd.Process == nil {
+		return
 	}
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		_ = cmd.Process.Kill()
+		return
+	}
+	// Give the Bun bridge a short window to call notifystop before forcefully
+	// terminating it. The existing Wait goroutine owns process reaping.
+	time.AfterFunc(2*time.Second, func() {
+		_ = cmd.Process.Kill()
+	})
 }
 func (a *App) TestSystemNotification() error {
 	_, err := tester.NewService().TestSystem(context.Background())
