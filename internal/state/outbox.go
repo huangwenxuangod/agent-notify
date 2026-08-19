@@ -15,6 +15,7 @@ import (
 // the normalized event fields so the state package stays independent of notify.
 type RemoteOutboxItem struct {
 	ID          string    `json:"id"`
+	EventID     string    `json:"event_id,omitempty"`
 	Agent       string    `json:"agent"`
 	Event       string    `json:"event"`
 	SessionID   string    `json:"session_id,omitempty"`
@@ -45,8 +46,32 @@ func (o *RemoteOutbox) Enqueue(item RemoteOutboxItem) error {
 	if err != nil {
 		return err
 	}
+	if item.EventID != "" {
+		for i := range items {
+			if items[i].EventID != item.EventID {
+				continue
+			}
+			items[i].Channels = mergeChannels(items[i].Channels, item.Channels)
+			if items[i].LastError == "" {
+				items[i].LastError = item.LastError
+			}
+			return o.save(items)
+		}
+	}
 	items = append(items, item)
 	return o.save(items)
+}
+
+func mergeChannels(existing, incoming []string) []string {
+	seen := make(map[string]bool, len(existing)+len(incoming))
+	merged := make([]string, 0, len(existing)+len(incoming))
+	for _, name := range append(append([]string(nil), existing...), incoming...) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			merged = append(merged, name)
+		}
+	}
+	return merged
 }
 
 func (o *RemoteOutbox) Due(now time.Time) ([]RemoteOutboxItem, error) {

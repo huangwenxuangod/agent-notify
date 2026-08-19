@@ -16,6 +16,7 @@ import (
 // EventRecord is deliberately independent from notify.Message to avoid a package cycle.
 type EventRecord struct {
 	ID          string    `json:"id"`
+	EventID     string    `json:"event_id,omitempty"`
 	Timestamp   time.Time `json:"timestamp"`
 	Agent       string    `json:"agent"`
 	Event       string    `json:"event"`

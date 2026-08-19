@@ -1,8 +1,14 @@
 package notify
 
-import "context"
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+)
 
 type Message struct {
+	EventID     string
 	Agent       string
 	Event       string
 	SessionID   string
@@ -22,6 +28,24 @@ type Message struct {
 	// 发通知时用户已切走窗口导致抓错（send-time 抓取会取到已漂移的当前焦点窗）。仅 macOS /
 	// Windows 使用。
 	FocusCapture string
+}
+
+// StableEventID creates a deterministic identity shared by hooks, monitors,
+// the event journal, and remote retries.
+func StableEventID(msg Message) string {
+	identity := msg.RunID
+	if identity == "" {
+		identity = msg.TurnID
+	}
+	if identity == "" {
+		identity = msg.SessionID
+	}
+	parts := []string{msg.Agent, msg.Event, identity}
+	if identity == "" {
+		parts = append(parts, msg.Title, msg.Body)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])
 }
 
 // SourceApp 描述触发事件的宿主应用（终端 / IDE），用于系统通知点击后跳转聚焦。

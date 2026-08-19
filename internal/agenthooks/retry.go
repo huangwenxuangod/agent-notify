@@ -25,7 +25,7 @@ func RetryRemoteOutbox(ctx context.Context, cfg config.Config, statePath string,
 	// Process one record per tick. Remote providers can rate-limit a burst of
 	// historical notifications even when each item has its own retry delay.
 	item := items[0]
-	msg := notify.Message{Agent: item.Agent, Event: item.Event, SessionID: item.SessionID, TurnID: item.TurnID, RunID: item.RunID, SourceEvent: item.SourceEvent, Workspace: item.Workspace, Title: item.Title, Body: item.Body}
+	msg := notify.Message{EventID: item.EventID, Agent: item.Agent, Event: item.Event, SessionID: item.SessionID, TurnID: item.TurnID, RunID: item.RunID, SourceEvent: item.SourceEvent, Workspace: item.Workspace, Title: item.Title, Body: item.Body}
 	senders := selectSenders(buildRemoteSenders(cfg, msg), item.Channels)
 	if len(senders) == 0 {
 		if err := outbox.Remove(item.ID); err != nil {

@@ -38,3 +38,20 @@ func TestRemoteOutboxRemovesItemAfterSuccessfulRetry(t *testing.T) {
 		t.Fatalf("due items after remove = %d, want 0", len(items))
 	}
 }
+
+func TestRemoteOutboxMergesDuplicateEventChannels(t *testing.T) {
+	store := state.NewRemoteOutbox(filepath.Join(t.TempDir(), "remote-outbox.json"))
+	if err := store.Enqueue(state.RemoteOutboxItem{EventID: "event-1", Agent: "codex", Event: "run_completed", Channels: []string{"feishu"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Enqueue(state.RemoteOutboxItem{EventID: "event-1", Agent: "codex", Event: "run_completed", Channels: []string{"wechat-ilink"}}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(items[0].Channels) != 2 {
+		t.Fatalf("items = %#v, want one merged item", items)
+	}
+}

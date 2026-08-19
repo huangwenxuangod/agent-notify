@@ -75,6 +75,7 @@ func DefaultSessionsPath() (string, error) {
 // appended final answers. Codex Desktop does not invoke CLI hooks for UI turns.
 func Watch(ctx context.Context, root string, emit func(Event)) error {
 	positions := make(map[string]int64)
+	files := make(map[string]os.FileInfo)
 	emittedTurns := make(map[string]bool)
 	initial, err := sessionFiles(root)
 	if err != nil && !os.IsNotExist(err) {
@@ -91,6 +92,13 @@ func Watch(ctx context.Context, root string, emit func(Event)) error {
 			return err
 		}
 		for _, path := range paths {
+			info, statErr := os.Stat(path)
+			if statErr == nil {
+				if previous, ok := files[path]; ok && !os.SameFile(previous, info) {
+					positions[path] = 0
+				}
+				files[path] = info
+			}
 			position := positions[path]
 			next, err := readNew(path, position, func(event Event) {
 				event.SessionID = sessionID(path)

@@ -122,3 +122,31 @@ func TestSessionIDNormalizesRolloutFilenameToCodexSessionID(t *testing.T) {
 		t.Fatalf("sessionID() = %q, want %q", got, want)
 	}
 }
+
+func TestWatchContinuesAfterCodexSessionFileReplacement(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "rollout-019fe961-e541-7252-a5ef-07fb9c2f8f63.jsonl")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan Event, 1)
+	go func() { _ = Watch(ctx, root, func(event Event) { events <- event }) }()
+	time.Sleep(100 * time.Millisecond)
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-replaced","last_agent_message":"after replacement"}}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-events:
+		if event.Body != "after replacement" {
+			t.Fatalf("body = %q", event.Body)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("watch did not read replacement session file")
+	}
+}

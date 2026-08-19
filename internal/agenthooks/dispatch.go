@@ -49,6 +49,9 @@ func reserveTerminalSource(store *state.Store, msg notify.Message, origin string
 }
 
 func dispatch(ctx context.Context, cfg config.Config, statePath, logPath string, msg notify.Message, host bool) error {
+	if msg.EventID == "" {
+		msg.EventID = notify.StableEventID(msg)
+	}
 	if msg.Origin == "" {
 		msg.Origin = "native_hook"
 	}
@@ -183,7 +186,7 @@ func enqueueRemoteRetry(statePath, logPath string, msg notify.Message, channels 
 		_ = state.AppendLog(logPath, fmt.Sprintf("remote retry skipped: %v", err))
 		return
 	}
-	item := state.RemoteOutboxItem{Agent: msg.Agent, Event: msg.Event, SessionID: msg.SessionID, TurnID: msg.TurnID, RunID: msg.RunID, SourceEvent: msg.SourceEvent, Workspace: msg.Workspace, Title: msg.Title, Body: msg.Body, Channels: channels, LastError: err.Error()}
+	item := state.RemoteOutboxItem{EventID: msg.EventID, Agent: msg.Agent, Event: msg.Event, SessionID: msg.SessionID, TurnID: msg.TurnID, RunID: msg.RunID, SourceEvent: msg.SourceEvent, Workspace: msg.Workspace, Title: msg.Title, Body: msg.Body, Channels: channels, LastError: err.Error()}
 	if saveErr := state.NewRemoteOutbox(state.RemoteOutboxPath(statePath)).Enqueue(item); saveErr != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("remote retry enqueue error: %v", saveErr))
 	}
@@ -221,7 +224,7 @@ func appendEventRecord(statePath, logPath string, msg notify.Message, result str
 		sourceApp = msg.SourceApp.TermProgram
 	}
 	record := state.EventRecord{
-		Timestamp: time.Now().UTC(), Agent: msg.Agent, Event: msg.Event,
+		Timestamp: time.Now().UTC(), EventID: msg.EventID, Agent: msg.Agent, Event: msg.Event,
 		SessionID: msg.SessionID, TurnID: msg.TurnID, RunID: msg.RunID, SourceEvent: msg.SourceEvent, Workspace: msg.Workspace, Title: msg.Title,
 		Body: msg.Body, Origin: msg.Origin, SourceApp: sourceApp, Result: result,
 	}

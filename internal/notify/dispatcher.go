@@ -47,6 +47,9 @@ func NewDispatcher(store *state.Store, window time.Duration, senders ...Sender) 
 // 的代价(agent 干等)远大于重复一条的代价,因此 store 出错时照发不误,
 // 错误仅记入返回值供调用方写日志,绝不因 store 中止剩余 sender。
 func (d *Dispatcher) SendAll(ctx context.Context, msg Message) error {
+	if msg.EventID == "" {
+		msg.EventID = StableEventID(msg)
+	}
 	var errs []string
 	successful := false
 	for _, sender := range d.senders {
@@ -80,6 +83,9 @@ func (d *Dispatcher) SendAll(ctx context.Context, msg Message) error {
 // dedupeKey 优先使用稳定的 run/turn identity；老事件没有 identity 时，
 // 回退到 session + 内容 hash。SessionID 为空时用 ppid 兜底，避免多实例塌缩。
 func dedupeKey(msg Message, senderName string, ppid int) string {
+	if msg.EventID != "" {
+		return strings.Join([]string{msg.EventID, senderName}, "\x00")
+	}
 	session := msg.SessionID
 	if msg.RunID != "" {
 		session = "run-" + msg.RunID
