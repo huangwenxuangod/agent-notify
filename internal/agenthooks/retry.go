@@ -40,6 +40,20 @@ func RetryRemoteOutbox(ctx context.Context, cfg config.Config, statePath string,
 			}
 			return 1, nil
 		}
+		failed := failedSenderNames(err, senders)
+		if len(failed) == 0 {
+			if removeErr := outbox.Remove(item.ID); removeErr != nil {
+				return 0, removeErr
+			}
+			return 1, nil
+		}
+		item.Channels = failed
+		if item.Attempts+1 >= maxRemoteRetryAttempts {
+			if removeErr := outbox.Remove(item.ID); removeErr != nil {
+				return 0, removeErr
+			}
+			return 1, nil
+		}
 		if saveErr := outbox.Reschedule(item, err.Error(), time.Now()); saveErr != nil {
 			return 0, fmt.Errorf("reschedule remote retry: %w", saveErr)
 		}
@@ -52,9 +66,13 @@ func RetryRemoteOutbox(ctx context.Context, cfg config.Config, statePath string,
 }
 
 func isPermanentRemotePrecondition(err error) bool {
-	text := err.Error()
-	return strings.Contains(text, "returned 401") || strings.Contains(text, "returned 409")
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "returned 401") ||
+		strings.Contains(text, "returned 409") ||
+		strings.Contains(text, "prepare failed")
 }
+
+const maxRemoteRetryAttempts = 3
 
 func selectSenders(senders []notify.Sender, names []string) []notify.Sender {
 	allowed := make(map[string]bool, len(names))

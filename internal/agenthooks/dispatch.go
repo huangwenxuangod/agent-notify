@@ -177,6 +177,12 @@ func enqueueRemoteRetry(statePath, logPath string, msg notify.Message, channels 
 	if len(channels) == 0 {
 		return
 	}
+	// iLink prepare failures indicate a stale/invalid bridge session. Retrying
+	// the same payload cannot repair that session and can replay old events.
+	if isPermanentRemotePrecondition(err) {
+		_ = state.AppendLog(logPath, fmt.Sprintf("remote retry skipped: %v", err))
+		return
+	}
 	item := state.RemoteOutboxItem{Agent: msg.Agent, Event: msg.Event, SessionID: msg.SessionID, TurnID: msg.TurnID, RunID: msg.RunID, SourceEvent: msg.SourceEvent, Workspace: msg.Workspace, Title: msg.Title, Body: msg.Body, Channels: channels, LastError: err.Error()}
 	if saveErr := state.NewRemoteOutbox(state.RemoteOutboxPath(statePath)).Enqueue(item); saveErr != nil {
 		_ = state.AppendLog(logPath, fmt.Sprintf("remote retry enqueue error: %v", saveErr))

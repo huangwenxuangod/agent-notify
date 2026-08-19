@@ -97,7 +97,7 @@ func TestRetryRemoteOutboxDropsPreconditionFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := RetryRemoteOutbox(context.Background(), cfg, statePath, func(context.Context, notify.Message, []notify.Sender) error {
-		return errors.New(`wechat-ilink: bridge returned 409: Send one message to the bot to bind this WeChat account`)
+		return errors.New(`wechat-ilink: bridge returned 502: {"error":"prepare failed"}`)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -107,5 +107,48 @@ func TestRetryRemoteOutboxDropsPreconditionFailures(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("outbox items = %d, want precondition failure discarded", len(items))
+	}
+}
+
+func TestRetryRemoteOutboxRetainsOnlyFailedChannels(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	cfg := config.Default()
+	cfg.Notify.Codex.Events = []string{"run_completed"}
+	cfg.Remote.Feishu.WebhookURL = "https://example.test/feishu"
+	cfg.Remote.WechatIlink.Enabled = true
+	outbox := state.NewRemoteOutbox(state.RemoteOutboxPath(statePath))
+	if err := outbox.Enqueue(state.RemoteOutboxItem{
+		Agent: "codex", Event: "run_completed", Channels: []string{"feishu", "wechat-ilink"}, NextTry: time.Now().Add(-time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RetryRemoteOutbox(context.Background(), cfg, statePath, func(_ context.Context, _ notify.Message, senders []notify.Sender) error {
+		if len(senders) != 2 {
+			t.Fatalf("retry senders = %d, want 2", len(senders))
+		}
+		return &notify.DeliveryError{Successful: true, Details: []string{"wechat-ilink: bridge returned 502: unavailable"}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := outbox.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(items[0].Channels) != 1 || items[0].Channels[0] != "wechat-ilink" {
+		t.Fatalf("outbox after partial retry = %#v, want only wechat-ilink", items)
+	}
+}
+
+func TestEnqueueRemoteRetrySkipsPrepareFailed(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	enqueueRemoteRetry(statePath, filepath.Join(filepath.Dir(statePath), "agent-notify.log"), notify.Message{
+		Agent: "codex", Event: "run_completed", SessionID: "s1",
+	}, []string{"wechat-ilink"}, errors.New(`wechat-ilink: bridge returned 502: {"error":"prepare failed"}`))
+	items, err := state.NewRemoteOutbox(state.RemoteOutboxPath(statePath)).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("outbox items = %#v, want prepare failure not queued", items)
 	}
 }

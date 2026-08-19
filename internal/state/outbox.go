@@ -88,6 +88,7 @@ func (o *RemoteOutbox) Reschedule(item RemoteOutboxItem, errText string, now tim
 		if items[i].ID != item.ID {
 			continue
 		}
+		items[i].Channels = append([]string(nil), item.Channels...)
 		items[i].Attempts++
 		items[i].LastError = errText
 		items[i].NextTry = now.Add(retryDelay(items[i].Attempts)).UTC()
