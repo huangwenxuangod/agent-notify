@@ -32,6 +32,8 @@ bunx agent-notify
 
 这会启动 CLI 配置向导，只接入你选择的 Agent 和通知渠道。Bun 启动器会把对应平台的 Go Hook Runtime 下载到 `~/.agent-notify/`，并始终通过绝对路径运行。
 
+要求：启动器需要 Bun `>=1.3.14`；只有从源码构建桌面端时才需要 Go `>=1.25`。
+
 ## 工作方式
 
 ```text
@@ -45,15 +47,20 @@ Agent 事件
 
 ## 桌面端与 Docker
 
-macOS 桌面端是菜单栏常驻控制台：启动后会自动发现 Agent、接入缺失的用户级 Hook、为已连接 Agent 启用系统通知，并用于配置机器人通道、查看事件历史、测试推送和管理开机启动。
+桌面端是 macOS 菜单栏 / Windows 系统托盘常驻控制台：启动后会自动发现 Agent、接入缺失的用户级 Hook、为已连接 Agent 启用系统通知，并用于配置远程通道、配置个人微信 iLink、查看事件历史、测试推送和管理开机启动。关闭窗口只会隐藏应用；后台 Bridge 和通知链路会继续运行，直到从托盘选择退出。在 macOS 菜单栏选择「打开 Agent Notify」会重新激活、恢复并显示窗口。
 
 ```bash
-./deploy.sh up       # 启动 Bridge，端口为 127.0.0.1:45173
-./deploy.sh desktop  # 构建、更新并显示 Agent Notify.app
-./deploy.sh status
+./deploy.sh up        # 启动 Docker 控制面，端口为 127.0.0.1:45173
+./deploy.sh desktop   # 构建、更新并显示桌面端
+./deploy.sh status    # 查看容器状态
+./deploy.sh logs      # 查看控制面日志
+./deploy.sh restart
+./deploy.sh down
+./deploy.sh upgrade
+./deploy.sh uninstall
 ```
 
-桌面端仅做本机 ad-hoc 签名，适合源码构建后的个人使用，未做面向公开分发的 macOS 公证。`~/.agent-notify/config.yaml` 是唯一配置源，桌面端会在 Bridge 在线时自动镜像过去。
+`./deploy.sh up` 不是本机通知链路的硬依赖。Hook 会直接发送系统通知和已配置的远程通知；Docker 主要提供事件历史、重试和桌面状态所需的本地控制面。桌面端会按需在 `127.0.0.1:45176` 启动 Bun 微信 Bridge。`~/.agent-notify/config.yaml` 是配置源。macOS 桌面端仅做 ad-hoc 签名，未做公开分发公证。
 
 WorkBuddy 会在 `codebuddy --serve` 进程中缓存 Hook 配置，安装或更新后需要重启 WorkBuddy。
 
@@ -64,6 +71,8 @@ WorkBuddy 会在 `codebuddy --serve` 进程中缓存 Hook 配置，安装或更�
 |:--------|------|--------|
 | 🖥️ 系统通知 | 支持 macOS、Linux、Windows 系统通知 | 原生支持   |
 | <img src="assist/logo/feishu.png" width="24" align="absmiddle"> 飞书   | 支持一键扫码绑定、支持飞书机器人消息推送 | 二维码扫描  |
+| 个人微信（iLink） | 腾讯支持的个人微信机器人，内置 Bun Bridge 扫码登录 | 扫码 + 绑定 |
+| 微信（通用） | 兼容用 Webhook 通道 | Webhook |
 | <img src="assist/logo/qiyeweixin.png" width="24" align="absmiddle"> 企业微信  | 支持通过企业微信群机器人 Webhook 推送通知消息 | Webhook |
 | <img src="assist/logo/dingding.png" width="24" align="absmiddle"> 钉钉  | 支持通过钉钉群机器人 Webhook 推送通知消息 | Webhook |
 | <img src="assist/logo/bark.png" width="24" align="absmiddle"> Bark  | 支持通过 Bark Webhook URL 推送到 iOS 设备 | Webhook |
@@ -85,11 +94,12 @@ WorkBuddy 会在 `codebuddy --serve` 进程中缓存 Hook 配置，安装或更�
 | Grok | 原生 Hook | 授权/输入分类、完成、失败 |
 | Droid | 原生 Hook | 授权/输入分类、完成 |
 | OpenCode | JavaScript 插件 | 授权、等待输入、完成、失败 |
+| Pi | 官方 TypeScript 扩展 | 完成、中断；全局安装，无需逐项目审核 |
 
 说明：
 
 - Claude Code 通过 `~/.claude/settings.json` 的 hooks 订阅：`PermissionRequest`、`Notification`、`Stop`、`PostToolUseFailure`、`SessionStart`。
-- Codex 通过 `~/.codex/hooks.json` 订阅 `PermissionRequest`、`Stop`（映射到 `permission_required` / `run_completed`）以及 `SessionStart`。`input_required` 与 `run_failed` Codex 目前没有对应 hook，因此暂不支持。
+- Codex 通过 `~/.codex/hooks.json` 订阅 `PermissionRequest`、`Stop`（映射到 `permission_required` / `run_completed`）以及 `SessionStart`。`input_required` 与 `run_failed` Codex 目前没有对应 hook，因此暂不支持。Codex 内部控制 payload（例如 `{"exclude":[]}`、建议元数据）会被静默过滤；正常文本和用户主动要求返回的 JSON 会保留通知。
 - ZCode 通过 `~/.zcode/cli/config.json` 订阅 `SessionStart`、`PermissionRequest`、`PostToolUseFailure`、`Stop`，映射到 `permission_required`、`run_failed`、`run_completed`。ZCode 没有 `Notification` 事件（因此不支持 `input_required`），且其 hook 配置格式较为严格——无法识别的事件名称会导致整个 hooks 配置被静默丢弃。
 - Grok 通过 `~/.grok/hooks/agent-notify.json` 订阅 `SessionStart`、`Notification`、`Stop`、`StopFailure`、`PostToolUseFailure`。Grok 没有独立的 `PermissionRequest` 事件，带 permission/approval 语义的 `Notification` 会映射为 `permission_required`（表中 *）；其它通知映射为 `input_required`。`StopFailure` / `PostToolUseFailure` 映射为 `run_failed`。
 - Droid 通过 `~/.factory/hooks.json` 订阅 `SessionStart`、`Notification`、`Stop`，映射为 `session_start` / `permission_required`|`input_required` / `run_completed`。Droid 无失败事件，故不支持 `run_failed`。`session_start` 仅用于点击聚焦的窗口捕获，不作为通知事件。
@@ -148,9 +158,18 @@ macOS 上交叉编译出 EXE 只能证明构建通过，Toast、托盘、开机�
 
 ### 个人微信机器人（iLink）与 Webhook 的区别
 
-仓库现有“微信”通道是兼容用的通用 Webhook，并不是个人微信扫码登录。当前腾讯支持的个人微信机器人路径是 OpenClaw 外部插件 `@tencent-weixin/openclaw-weixin`：它负责扫码登录、保存 bot token，并通过 iLink 长轮询收取消息。可靠发送还需要目标 `to_user_id` 和当前会话的 `context_token`。
+个人微信是独立的 `wechat-ilink` 通道，不是通用 `wechat` Webhook，也不要求安装 OpenClaw。桌面端会在 `127.0.0.1:45176` 启动本地 Bun Bridge，由 Bridge 完成腾讯 iLink 扫码登录、本地会话保存、长轮询、收件人绑定和 Agent Notify 消息转发。
 
-不要把 iLink token 粘贴到通用 Webhook 输入框。正式接入应复用官方 OpenClaw 插件/Gateway（或本机 sidecar），让官方层负责扫码、凭据、轮询和 context token 刷新。第一次真实验证流程是：安装插件并扫码登录，由目标微信先发一条消息完成会话绑定，再触发 Agent Notify 测试事件确认收到。官方插件没有声明群聊能力，当前不承诺群聊。
+配置流程：
+
+1. 打开桌面端，选择「个人微信」；
+2. 点击「连接微信」并扫描腾讯二维码；
+3. 用目标个人微信给机器人发送一条普通消息，完成绑定并刷新会话上下文；
+4. 点击「发送测试」或触发一次真实 Agent 事件。
+
+Bridge 会持久化 `get_updates_buf` 和最新 `context_token`，接入腾讯 `notifystart` / `notifystop` 生命周期接口，并在服务端返回 `ret=-2` / `prepare failed` 时进行一次无上下文重试。这能改善空闲后的恢复，但不能承诺永久主动送达；上下文、Token 和服务端有效期由腾讯控制。若状态变为上下文失效，再从微信发送一条消息后重试。不宣传群聊能力。
+
+不要把 iLink token 粘贴到通用 Webhook 输入框。iLink 状态保存在 `~/.agent-notify/wechat-ilink.json`，通道开关保存在 `~/.agent-notify/config.yaml`。
 
 > **注意**: Codex 通过 `~/.codex/hooks.json` 接入官方 hooks 系统，目前仅订阅 `PermissionRequest`、`Stop` 两个事件。首次安装后请在 codex 内运行 `/hooks` 完成 trust 审核。
 >
@@ -174,8 +193,9 @@ Agent 集成配置位置：
 - WorkBuddy / CodeBuddy: `~/.codebuddy/settings.json`（写入 `handle-workbuddy-hook`）
 - Hermes Agent: `~/.hermes/hooks/agent-notify/`（写入 Gateway Hook 清单与 handler）
 - OpenClaw: `~/.openclaw/extensions/agent-notify/`（写入 ESM 扩展）
+- Pi: `~/.pi/agent/extensions/agent-notify.ts`（写入自动发现的 TypeScript 扩展；项目级为 `.pi/extensions/agent-notify.ts`）
 
-远程通道统一配置在 `~/.agent-notify/config.yaml` 的 `remote` 下，由全部已启用 Agent 共享；具体哪些事件发送，仍由各 Agent 的事件配置决定。
+远程通道统一配置在 `~/.agent-notify/config.yaml` 的 `remote` 下，由全部已启用 Agent 共享；个人微信 iLink 的登录会话和上下文单独保存在 `~/.agent-notify/wechat-ilink.json`。具体哪些事件发送，仍由各 Agent 的事件配置决定。
 
 ### 企业微信机器人绑定小技巧
 

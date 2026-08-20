@@ -32,6 +32,8 @@ bunx agent-notify
 
 This opens the CLI setup wizard and installs only the agents and channels you select. The Bun launcher downloads the matching Go Hook Runtime into `~/.agent-notify/` and executes it by absolute path.
 
+Requirements: Bun `>=1.3.14` for the launcher and Go `>=1.25` only when building the desktop app from source.
+
 ## How It Works
 
 ```text
@@ -45,15 +47,20 @@ The host runtime is the delivery path. Notifications continue to work when Docke
 
 ## Desktop App and Docker
 
-The macOS desktop app is a source-built, menu-bar control panel. On launch it detects installed agents, installs missing user-level integrations, enables system notifications for connected agents, manages remote bot channels, shows event history, tests delivery, and controls login startup.
+The desktop app is a source-built menu-bar/tray control panel for macOS and Windows. On launch it detects installed agents, installs missing user-level integrations, enables system notifications for connected agents, manages remote channels, configures personal WeChat iLink, shows event history, tests delivery, and controls login startup. Closing the window hides the app; the background bridge and notification path continue running until you choose Quit. Selecting **Open Agent Notify** from the macOS menu bar reactivates, restores, and shows the window.
 
 ```bash
-./deploy.sh up       # start the Bridge on 127.0.0.1:45173
-./deploy.sh desktop  # build, update, and show Agent Notify.app
-./deploy.sh status
+./deploy.sh up        # start the Docker control plane on 127.0.0.1:45173
+./deploy.sh desktop   # build/reinstall and show the desktop app
+./deploy.sh status    # show container status
+./deploy.sh logs      # follow control-plane logs
+./deploy.sh restart
+./deploy.sh down
+./deploy.sh upgrade
+./deploy.sh uninstall
 ```
 
-The app is signed ad-hoc for local use and is not notarized for public macOS distribution. `~/.agent-notify/config.yaml` remains the configuration authority; the app mirrors it to the Bridge when online.
+`./deploy.sh up` is optional for the host notification path. Hooks send system and configured remote notifications directly; Docker provides the local control plane used for event history, retries, and desktop status. The app itself starts the Bun WeChat Bridge on `127.0.0.1:45176` when needed. `~/.agent-notify/config.yaml` remains the configuration authority. The macOS app is ad-hoc signed for local use and is not notarized for public distribution.
 
 WorkBuddy caches hooks inside its `codebuddy --serve` process. Restart WorkBuddy after adding or updating its hooks.
 
@@ -67,6 +74,8 @@ WorkBuddy caches hooks inside its `codebuddy --serve` process. Restart WorkBuddy
 |:--------|------|---------|
 | 🖥️ System Notification | Native notifications on macOS, Linux, and Windows | Default |
 | <img src="assist/logo/feishu.png" width="24" align="absmiddle"> Feishu / Lark | One-click QR-code binding; push via Feishu bot messages | QR scan |
+| Personal WeChat (iLink) | Tencent-supported QR login through the built-in local Bun bridge | QR scan + bind |
+| WeChat (generic) | Compatibility webhook channel | Webhook |
 | <img src="assist/logo/qiyeweixin.png" width="24" align="absmiddle"> WeChat Work | Push notifications via a WeChat Work group bot webhook | Webhook |
 | <img src="assist/logo/dingding.png" width="24" align="absmiddle"> DingTalk | Push notifications via a DingTalk group bot webhook | Webhook |
 | <img src="assist/logo/bark.png" width="24" align="absmiddle"> Bark | Push to iOS devices via a Bark webhook URL | Webhook |
@@ -93,7 +102,7 @@ WorkBuddy caches hooks inside its `codebuddy --serve` process. Restart WorkBuddy
 Notes:
 
 - Claude Code subscribes via hooks in `~/.claude/settings.json`: `PermissionRequest`, `PermissionDenied`, `Notification`, `Stop`, `StopFailure`, `PostToolUseFailure`, and `SessionStart`. Permission denials and API/turn failures are normalized as actionable notifications with the original reason.
-- Codex subscribes via `~/.codex/hooks.json`: `PermissionRequest` and `Stop` (mapped to `permission_required` / `run_completed`), plus `SessionStart`. Codex Desktop UI turns are additionally read from `~/.codex/sessions/*.jsonl`, including structured task errors such as rate limits; the CLI hook API itself has no dedicated failure event.
+- Codex subscribes via `~/.codex/hooks.json`: `PermissionRequest` and `Stop` (mapped to `permission_required` / `run_completed`), plus `SessionStart`. Codex Desktop UI turns are additionally read from `~/.codex/sessions/*.jsonl`, including structured task errors such as rate limits; the CLI hook API itself has no dedicated failure event. Internal control payloads such as `{"exclude":[]}` and suggestion metadata are suppressed, while normal text and user-requested JSON results are retained.
 - ZCode subscribes via `~/.zcode/cli/config.json`: `SessionStart`, `PermissionRequest`, `PostToolUseFailure`, and `Stop`, mapped to `permission_required`, `run_failed`, and `run_completed`. ZCode has no `Notification` event (so no `input_required`), and its hook schema is strict — an unknown event name will cause the whole hooks config to be silently dropped.
 - Grok subscribes via `~/.grok/hooks/agent-notify.json`: `SessionStart`, `Notification`, `Stop`, `StopFailure`, and `PostToolUseFailure`. There is no dedicated `PermissionRequest` event; `Notification`s with permission/approval semantics map to `permission_required` (marked *), others map to `input_required`. `StopFailure` / `PostToolUseFailure` map to `run_failed`.
 - Droid subscribes via `~/.factory/hooks.json`: `SessionStart`, `Notification`, `Stop`, mapped to `session_start` / `permission_required`|`input_required` / `run_completed`. Droid has no failure event, so `run_failed` is not supported. `session_start` is only used for click-to-focus window capture, not as a notification event.
@@ -110,7 +119,7 @@ Notes:
 |:---:|:---:|:---:|
 | macOS amd64 / arm64 | ✅ | ✅ Source-built menu-bar app |
 | Linux amd64 / arm64 | ✅ | — |
-| Windows amd64 / arm64 | ✅ | — |
+| Windows amd64 / arm64 | ✅ | ✅ Source-built tray app |
 
 ### Click-to-Focus
 
@@ -151,9 +160,18 @@ Cross-compiling an EXE on macOS only proves that the Windows build is valid. Toa
 
 ### Personal WeChat bot (iLink) versus webhook
 
-The existing `WeChat` channel is a generic webhook gateway for compatibility. It is not a direct personal-WeChat login. The current Tencent-supported personal bot path is the external OpenClaw plugin `@tencent-weixin/openclaw-weixin`, which performs QR login and maintains the iLink long-poll connection. It stores a bot token locally and needs a target `to_user_id` plus a current conversation `context_token` for reliable replies.
+Personal WeChat is a separate `wechat-ilink` channel. It is not the generic `wechat` webhook channel and does not require an OpenClaw installation. The desktop app starts a local Bun bridge on `127.0.0.1:45176`; the bridge performs Tencent iLink QR login, stores the bot session locally, maintains long-polling, binds the recipient, and forwards Agent Notify messages.
 
-Do not paste an iLink token into the generic webhook field. Direct integration should reuse the official OpenClaw plugin/Gateway (or a local sidecar) so QR login, token storage, polling, and context-token refresh remain in the vendor-maintained layer. The first real test is: install the plugin, scan/login, send one message from the target WeChat account to bind the conversation, then send an Agent Notify test event and verify the message arrives. Group-chat support is not advertised by the plugin and is not promised here.
+Setup is intentionally short:
+
+1. Open the desktop app and select **Personal WeChat**.
+2. Click **Connect** and scan the displayed Tencent QR code.
+3. Send one ordinary message from the target personal WeChat account to the bot. This binds the recipient and refreshes the conversation context.
+4. Use **Send test** or trigger a real Agent event.
+
+The bridge persists `get_updates_buf` and the latest `context_token`, calls Tencent's `notifystart`/`notifystop` lifecycle endpoints, and performs one no-context retry when the server reports `ret=-2` / `prepare failed`. This improves recovery after idle periods but cannot guarantee permanent proactive delivery: Tencent controls token, context, and service-side expiry. If the context becomes stale, send another message from WeChat before testing again. Group-chat support is not advertised.
+
+Do not paste an iLink token into the generic webhook field. The iLink state is stored in `~/.agent-notify/wechat-ilink.json`; the shared channel switch is stored in `~/.agent-notify/config.yaml`.
 
 > **Note**: Codex integrates through the official hooks system in `~/.codex/hooks.json` and currently subscribes only to `PermissionRequest` and `Stop`. After first install, run `/hooks` inside Codex to complete the trust review.
 >
