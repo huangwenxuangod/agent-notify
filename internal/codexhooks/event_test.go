@@ -2,6 +2,7 @@ package codexhooks
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +95,15 @@ func TestParseStopFallsBackToDefaultBody(t *testing.T) {
 	}
 	if msg.Body == "" {
 		t.Fatal("Body should fall back to default when last_assistant_message empty")
+	}
+}
+
+func TestParseStopSkipsCodexInternalControlPayload(t *testing.T) {
+	raw := []byte(`{"hook_event_name":"Stop","session_id":"s","cwd":"/","last_assistant_message":"{\"exclude\":[]}"}`)
+
+	_, err := parseMessageBytes(raw)
+	if !errors.Is(err, ErrInternalControlEvent) {
+		t.Fatalf("ParseMessage() error = %v, want ErrInternalControlEvent", err)
 	}
 }
 

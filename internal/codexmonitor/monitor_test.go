@@ -48,6 +48,21 @@ func TestParseJournalEventDetectsCodexTaskComplete(t *testing.T) {
 	}
 }
 
+func TestParseJournalEventSkipsCodexInternalControlPayload(t *testing.T) {
+	line := `{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"{\"exclude\":[]}"}}`
+	if _, ok := ParseJournalEvent(line); ok {
+		t.Fatal("internal exclude payload must not produce a completion notification")
+	}
+}
+
+func TestParseJournalEventKeepsUserJSONResponse(t *testing.T) {
+	line := `{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"{\"status\":\"ok\",\"items\":[]}"}}`
+	event, ok := ParseJournalEvent(line)
+	if !ok || event.Body != `{"status":"ok","items":[]}` {
+		t.Fatalf("event = %#v, ok = %t; user JSON must be retained", event, ok)
+	}
+}
+
 func TestReadNewContinuesPastLargeJournalRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout-large.jsonl")
 	largeRecord := `{"type":"response_item","payload":{"output":"` + strings.Repeat("x", 128*1024) + `"}}` + "\n"

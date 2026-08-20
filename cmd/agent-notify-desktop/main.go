@@ -671,7 +671,11 @@ func (a *App) startTray(ctx context.Context) {
 	go a.watchWorkBuddyDesktop(ctx)
 	go a.watchCodexDesktop(ctx)
 	tray.Start(tray.Actions{
-		Open:   func() { runtime.WindowShow(ctx) },
+		Open: func() {
+			tray.ActivateApp()
+			runtime.WindowUnminimise(ctx)
+			runtime.WindowShow(ctx)
+		},
 		Pause:  func() { _ = a.PauseOneHour() },
 		Resume: func() { _ = a.ResumeNotifications() },
 		Quit: func() {

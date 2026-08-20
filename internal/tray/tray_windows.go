@@ -41,4 +41,6 @@ func Start(actions Actions) {
 
 func Quit() { systray.Quit() }
 
+func ActivateApp() {}
+
 func SystemShutdownRequested() bool { return false }

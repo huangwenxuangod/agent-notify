@@ -2,13 +2,17 @@ package codexhooks
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/hellolib/agent-notify/internal/codexmonitor"
 	"github.com/hellolib/agent-notify/internal/common"
 	"github.com/hellolib/agent-notify/internal/notify"
 )
+
+var ErrInternalControlEvent = errors.New("codex internal control event")
 
 // payload 描述 Codex hooks 通过 stdin 投递的事件 JSON。
 // 字段与 Codex 官方 hook schema 对齐，未使用的字段也保留以便排查。
@@ -53,6 +57,9 @@ func ParseMessage(stdin io.Reader) (notify.Message, error) {
 			Body:      fmt.Sprintf("工具: %s\n操作需要您的授权许可", fallbackToolName(p.ToolName)),
 		}, nil
 	case "Stop":
+		if codexmonitor.IsInternalControlPayload(p.LastAssistantMessage) {
+			return notify.Message{}, ErrInternalControlEvent
+		}
 		body := notify.DefaultBody("run_completed")
 		if hint := truncateMessage(strings.TrimSpace(p.LastAssistantMessage), 200); hint != "" {
 			body = hint

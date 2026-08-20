@@ -6,6 +6,7 @@ package tray
 #cgo LDFLAGS: -framework Cocoa -framework UniformTypeIdentifiers
 void agentNotifyInstallTray(void);
 void agentNotifyRemoveTray(void);
+void agentNotifyActivateApp(void);
 int agentNotifySystemShutdownRequested(void);
 */
 import "C"
@@ -25,6 +26,8 @@ func Start(next Actions) {
 }
 
 func Quit() { C.agentNotifyRemoveTray() }
+
+func ActivateApp() { C.agentNotifyActivateApp() }
 
 func SystemShutdownRequested() bool { return C.agentNotifySystemShutdownRequested() != 0 }
 

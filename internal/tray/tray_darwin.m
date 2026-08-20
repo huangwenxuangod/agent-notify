@@ -67,6 +67,19 @@ void agentNotifyInstallTray(void) {
   });
 }
 
+// agentNotifyActivateApp brings a tray-launched instance to the foreground.
+// WindowShow alone is insufficient when the app was started hidden at login.
+void agentNotifyActivateApp(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [NSApp activateIgnoringOtherApps:YES];
+    NSWindow *window = [NSApp keyWindow];
+    if (window == nil && NSApp.windows.count > 0) {
+      window = NSApp.windows[0];
+    }
+    [window makeKeyAndOrderFront:nil];
+  });
+}
+
 int agentNotifySystemShutdownRequested(void) {
   return agentNotifyPowerOffRequested ? 1 : 0;
 }
