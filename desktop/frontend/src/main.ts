@@ -1,5 +1,6 @@
 import "./styles.css";
 import "./channel-guide.css";
+import { applyChannelToggle } from "./channel-toggle";
 import "./app-shell-polish.css";
 import {
   BellRing,
@@ -416,12 +417,6 @@ async function saveDedupe() {
   render();
 }
 function bind() {
-	const channelToggle = app.querySelector<HTMLInputElement>(
-		"[data-channel-enabled]",
-	);
-	if (data && endpoint(data.config.Remote[selected]) === "" && channelToggle) {
-		channelToggle.checked = true;
-	}
 	app
 		.querySelectorAll<HTMLInputElement>("#endpoint, #credential")
 		.forEach((input) => {
@@ -487,7 +482,20 @@ function bind() {
 	});
   app
     .querySelector<HTMLInputElement>("[data-channel-enabled]")
-    ?.addEventListener("change", render);
+	?.addEventListener("change", async (event) => {
+		if (!data) return;
+		const enabled = (event.target as HTMLInputElement).checked;
+		try {
+			const next = applyChannelToggle(data.config, selected, enabled);
+			await saveConfig(next);
+			data.config = next;
+			notice = enabled ? "渠道已开启" : "渠道已关闭";
+			render();
+		} catch (error) {
+			notice = `保存失败: ${String(error)}`;
+			render();
+		}
+	});
 	app.querySelector('[data-action="save"]')?.addEventListener(
     "click",
     () =>
